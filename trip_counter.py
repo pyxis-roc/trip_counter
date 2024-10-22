@@ -109,4 +109,9 @@ if __name__ == '__main__':
             trip_counts[block] = trip_counts[block].subs(vars)
     
     for block in sorted(trip_counts):
-        print(f'{block} : {trip_counts[block]} : {trip_counts[block].doit()}')
+        formula = f'{trip_counts[block]}'
+        try:
+            value = f'{trip_counts[block].doit()}'
+        except :
+            value = 'Not computable'
+        print(f'{block} : {formula} : {value}')

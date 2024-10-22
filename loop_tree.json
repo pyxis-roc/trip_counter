@@ -2,7 +2,7 @@
     "induction_variable": "i",
     "start": "1",
     "end": "n",
-    "step": "1",
+    "step": "b",
     "basic_block": [
         "BB0"
     ],
