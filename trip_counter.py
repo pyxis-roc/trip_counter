@@ -2,12 +2,17 @@ import json
 import sympy as sy
 import ast
 import argparse
+import hashlib
 from typing import Callable
 
 class symSum(sy.Function):
     def doit(self, **hints):
         i, start, end, step, expr = self.args
-        return sy.Sum(expr, (i*step, start//step, end//step)).doit()
+        j = sy.Symbol('_j')
+
+        return sy.Sum(
+            expr.subs(i, start + j*step), 
+            (j, 0, (end-start)//step)).doit()
 
     def __str__(self):
         i, start, end, step, expr = self.args
