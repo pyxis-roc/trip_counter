@@ -17,7 +17,10 @@
 #include <iostream>
 #include <llvm/Analysis/ScalarEvolutionExpressions.h>
 #include <llvm/IR/CFG.h>
+#include <llvm/IR/InstrTypes.h>
 #include <llvm/IR/Instructions.h>
+#include <llvm/IR/Operator.h>
+#include <llvm/IR/Use.h>
 #include <llvm/Support/Casting.h>
 #include "llvm/IR/Dominators.h"
 #include "llvm/Analysis/ScalarEvolution.h"
@@ -26,6 +29,8 @@
 using namespace llvm;
 
 void printLoopInfo(Loop &L, ScalarEvolution &SE, int depth = 0);
+void printRootExpr(const SCEV& E);
+void printExpanded(Instruction& I);
 
 void analyzeLoop(Module &M) {
     LLVMContext &Context = M.getContext();
@@ -74,15 +79,28 @@ void printLoopInfo(Loop &L, ScalarEvolution &SE, int depth){
 
         errs() << indent << "  InVar: ";
         i->printAsOperand(errs());
-        expr->print(errs());
         errs() << " | ";
+        expr->print(errs());
+        errs() << "\n";
+
+        errs() << indent << "  start: ";
         start->print(errs());
-        errs() << " ";
+        errs() << " | ";
+        printRootExpr(*start);
+        errs() << "\n";
+
+        errs() << indent << "  step: ";
         step->print(errs());
         errs() << " | ";
-        end->print(errs());
-
+        printRootExpr(*step);
         errs() << "\n";
+
+        errs() << indent << "  end: ";
+        end->print(errs());
+        errs() << " | ";
+        printRootExpr(*end);
+        errs() << "\n";
+
     }
     else {
         assert(0 && "No induction variable found");
@@ -93,6 +111,52 @@ void printLoopInfo(Loop &L, ScalarEvolution &SE, int depth){
     }
 }
 
+void printRootExpr(const SCEV& E){
+    for(const SCEV* op: E.operands()){
+        if(const SCEVUnknown* u = dyn_cast<SCEVUnknown>(op)){
+            u->print(errs());
+            errs() << " ";
+            printExpanded(*dyn_cast<Instruction>(u->getValue()));
+            errs() << " | ";
+        }
+    }
+}
+
+void printExpanded(Instruction& I){
+    if (I.isBinaryOp() || I.isUnaryOp()) {
+        errs() << I.getOpcodeName() << " ";
+        for (Use& opr : I.operands()) {
+            if (Instruction* op = dyn_cast<Instruction>(opr.get())) {
+                errs() << "(";
+                printExpanded(*op);
+                errs() << ")";
+            }
+            else {
+                opr->printAsOperand(errs(), false);
+            }
+            errs() << " ";
+        }
+    }
+    else{
+        errs() << I.getOpcodeName() << " ";
+        for (Use& opr : I.operands()) {
+            opr->printAsOperand(errs(), false);
+            errs() << " ";
+        }
+    }
+}
+
+void analyzeExpandedExpr(Module& M){
+    for (Function& F: M) 
+    for (BasicBlock& B: F) 
+    for (Instruction& I: B) {
+        I.print(errs());
+        errs() << "\n";
+        errs() << " " << I.getName() << " = ";
+        printExpanded(I);
+        errs() << "\n";
+    }
+}
 
 int main (int argc, char** argv){
     if(argc < 2){
@@ -111,6 +175,7 @@ int main (int argc, char** argv){
     }
 
     analyzeLoop(*M);
+    // analyzeExpandedExpr(*M);
     
     return 0;
 }
