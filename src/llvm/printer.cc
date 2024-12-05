@@ -13,108 +13,158 @@
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Scalar.h"
+#include <cassert>
+#include <cerrno>
+#include <csignal>
 #include <iostream>
+#include <llvm/Analysis/ScalarEvolutionExpressions.h>
+#include <llvm/IR/Argument.h>
+#include <llvm/IR/CFG.h>
+#include <llvm/IR/InstrTypes.h>
+#include <llvm/IR/Instructions.h>
+#include <llvm/IR/Operator.h>
+#include <llvm/IR/Use.h>
+#include <llvm/IR/Value.h>
+#include <llvm/Support/Casting.h>
+#include "llvm/IR/Dominators.h"
+#include "llvm/Analysis/ScalarEvolution.h"
+#include <memory>
 
 using namespace llvm;
+using v_set = std::set<const Value*>;
 
-void printLoopInfo(Loop *L, unsigned depth = 0) {
-    errs().indent(2 * depth) << "Loop at depth " << depth << "\n";
+void printLoopInfo(Loop &L, ScalarEvolution &SE, v_set keep_unexpanded = v_set(), int depth = 0);
+void printRootExpr(const SCEV& E, v_set keep_unexpanded = v_set());
+void printExpanded(Value*, v_set keep_unexpanded = v_set());
 
-    // Print loop header
-    if (BasicBlock *header = L->getHeader()) {
-        errs().indent(2 * depth) << "Header: ";
-        header->printAsOperand(errs(), false);
-        errs() << "\n";
-    }
-
-    // Print loop preheader
-    if (BasicBlock *preheader = L->getLoopPreheader()) {
-        errs().indent(2 * depth) << "Preheader: ";
-        preheader->printAsOperand(errs(), false);
-        errs() << "\n";
-    }
-
-    // Print loop exit blocks
-    SmallVector<BasicBlock*, 4> exitBlocks;
-    L->getExitBlocks(exitBlocks);
-    for (BasicBlock *exitBlock : exitBlocks) {
-        errs().indent(2 * depth) << "Exit Block: ";
-        exitBlock->printAsOperand(errs(), false);
-        errs() << "\n";
-    }
-
-    // Recursively print nested loops
-    for (Loop *SubLoop : L->getSubLoops()) {
-        printLoopInfo(SubLoop, depth + 1);
-    }
-}
-
-void runLoopSimplifyAndPrint(Module &M) {
+void analyzeLoop(Module &M) {
     LLVMContext &Context = M.getContext();
-    
+
     // Initialize pass managers
     LoopAnalysisManager LAM;
     FunctionAnalysisManager FAM;
     FunctionPassManager FPM;
     ModulePassManager MPM;
-    
-    // Register LoopInfo analysis
+
     PassBuilder PB;
+
     PB.registerFunctionAnalyses(FAM);
     PB.registerLoopAnalyses(LAM);
 
-    // Add LoopSimplify and LoopInfo passes
     FPM.addPass(LoopSimplifyPass());
+    FPM.addPass(ScalarEvolutionVerifierPass());
 
-    // Run LoopSimplify on each function and print loop information
-    for (Function &F : M) {
+    for (Function& F: M) {
         if (F.isDeclaration()) continue;
 
-        // Run the LoopSimplify pass
         FPM.run(F, FAM);
-
-        // Get the LoopInfo for the function
         LoopInfo &LI = FAM.getResult<LoopAnalysis>(F);
-
-        errs() << "Function: " << F.getName() << "\n";
+        ScalarEvolution &SE = FAM.getResult<ScalarEvolutionAnalysis>(F);
+        
         for (Loop *L : LI) {
-            printLoopInfo(L);
+            printLoopInfo(*L, SE);
         }
     }
 }
 
-int main(int argc, char **argv) {
-    // Check if the user provided an input file
-    if (argc < 2) {
+void printLoopInfo(Loop &L, ScalarEvolution &SE,v_set induction_var, int depth){
+    std::string indent(depth*2, ' ');
+
+    errs() << indent << "Loop: " << L.getName() << "\n";
+    errs() << indent;
+    L.getLatchCmpInst() ->print(errs());
+    errs() << "\n";
+
+    PHINode* i = L.getInductionVariable(SE);
+    if (!i) assert(0 && "No induction variable found");
+    
+    induction_var.insert(static_cast<const Value*>(i));
+    const SCEVAddRecExpr* expr = cast<SCEVAddRecExpr>(SE.getSCEV(i));
+    const SCEV* start = expr->getStart();
+    const SCEV* step = expr->getStepRecurrence(SE);
+    const SCEV* bcount = SE.getBackedgeTakenCount(&L);
+    const SCEV* end = SE.getAddExpr(start, SE.getMulExpr(bcount, step));
+
+    errs() << indent << "  InVar: ";
+    i->printAsOperand(errs());
+    errs() << " | ";
+    expr->print(errs());
+    errs() << "\n";
+
+    errs() << indent << "  start: ";
+    start->print(errs());
+    errs() << " | ";
+    printRootExpr(*start);
+    errs() << "\n";
+
+    errs() << indent << "  step: ";
+    step->print(errs());
+    errs() << " | ";
+    printRootExpr(*step);
+    errs() << "\n";
+
+    errs() << indent << "  end: ";
+    end->print(errs());
+    errs() << " | ";
+    printRootExpr(*end);
+    errs() << "\n";
+
+    for (Loop* SL : L.getSubLoops()) {
+        printLoopInfo(*SL, SE, induction_var, depth + 1);
+    }
+    induction_var.erase(i);
+}
+
+void printRootExpr(const SCEV& E, v_set keep_unexpanded){
+    for(const SCEV* op: E.operands()){
+        if(const SCEVUnknown* u = dyn_cast<SCEVUnknown>(op)){
+            u->print(errs());
+            errs() << " ";
+            printExpanded(dyn_cast<Instruction>(u->getValue()), keep_unexpanded);
+            errs() << " | ";
+        }
+    }
+}
+
+void printExpanded(Value* I, v_set keep_unexpanded){
+    //expand cases
+    if(Instruction* i = dyn_cast<Instruction>(I)){
+        if (i->getOpcode() == Instruction::PHI){
+            i->print(errs());
+            return;
+        }
+        errs() << "(";
+        errs() << i->getOpcodeName();
+        for(Use& opr: i->operands()){
+            errs() << " ";
+            printExpanded(dyn_cast<Value>(opr.get()), keep_unexpanded);
+        }
+        errs() << ")";
+    }
+    //basic cases
+    else{
+        I->printAsOperand(errs(), false);
+    }
+}
+
+
+int main (int argc, char** argv){
+    if(argc < 2){
         std::cerr << "Usage: " << argv[0] << " <LLVM IR file>\n";
         return 1;
     }
 
-    // Initialize LLVM Context
-    LLVMContext context;
-    SMDiagnostic error;
+    LLVMContext Context;
+    SMDiagnostic Error;
+    std::unique_ptr<Module> M = parseIRFile(argv[1], Error, Context);
 
-    // Parse the LLVM IR file
-    std::unique_ptr<Module> module = parseIRFile(argv[1], error, context);
-    if (!module) {
+    if (!M) {
         std::cerr << "Error reading IR file: ";
-        error.print(argv[0], errs());
+        Error.print(argv[0], errs());
         return 1;
     }
 
-    // runLoopSimplifyAndPrint(*module);
-
-    // Print out the module's content
-    std::cout << "Module Name: " << module->getName().str() << "\n";
-
-    for (const Function &F : *module) {
-        std::cout << "Function: " << F.getName().str() << "\n";
-        for (const BasicBlock &BB : F) {
-            std::cout << "  BasicBlock: ";
-            BB.printAsOperand(outs(), false);
-            std::cout << "\n";
-        }
-    }
-
+    analyzeLoop(*M);
+    
     return 0;
 }
