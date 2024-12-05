@@ -1,13 +1,13 @@
-FLAGS = `llvm-config --cxxflags --ldflags --system-libs --libs all` -O0 --debug
+FLAGS = `llvm-config --cxxflags --ldflags --system-libs --libs all` -O0 -g3 
 
-all: printer loops
+all: printer main
 
 
 printer: printer.cc
-	clang++ printer.cc -o printer $(FLAGS)
+	g++ printer.cc -o printer $(FLAGS)
 
-loops:	loops.cc
-	clang++ loops.cc -o loops $(FLAGS)
+main: loop_summary.cc control_variable.cc main.cc
+	g++ loop_summary.cc control_variable.cc main.cc -o main $(FLAGS)
 
 clean:
-	rm -f printer loops 
+	rm -f printer main 
