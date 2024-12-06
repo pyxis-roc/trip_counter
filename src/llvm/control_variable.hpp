@@ -31,6 +31,13 @@ class ControlVar{
         //extend direct control variables to include related control variables
         static std::set<llvm::Instruction*> extened(std::set<llvm::Instruction*>);  
 
+        // Get all variables that are modified by given code base
+        static std::set<llvm::Instruction*> getAffected(llvm::Instruction* I);
+        static std::set<llvm::Instruction*> getAffected(llvm::BasicBlock* B);
+        static std::set<llvm::Instruction*> getAffected(llvm::Function* F);
+        static std::set<llvm::Instruction*> getAffected(llvm::Module* M);
+        static std::set<llvm::Instruction*> getAffected(llvm::Loop* L);
+
         // Get all control variables in a module/basic block/loop/instruction
         template <typename T>
         static std::set<llvm::Instruction*> getAll(T* codeBase){

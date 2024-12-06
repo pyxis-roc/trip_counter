@@ -1,8 +1,10 @@
 #include "loop_summary.hpp"
 #include "control_variable.hpp"
 #include <algorithm>
+#include <cstdlib>
 #include <iterator>
 #include <llvm/IR/Instruction.h>
+#include <llvm/Support/raw_ostream.h>
 #include <set>
 
 std::set<llvm::Instruction*> LoopSummary::getAffectInstructions(llvm::Module* M){
@@ -13,15 +15,25 @@ std::set<llvm::Instruction*> LoopSummary::getAffectInstructions(llvm::Module* M)
                     loopDirect.begin(), loopDirect.end(), 
                     std::inserter(externalDirect, externalDirect.begin()));
     auto allExternal = ControlVar::extened(externalDirect);
+
+    for (auto i: allExternal){
+        i->print(llvm::errs());
+        llvm::errs() << "\n";
+    }
+
+    llvm::errs() << "----------\n";
     
     std::set<llvm::Instruction*> result;
-    for(auto* basicBlock: L.getBlocks()){
-        for(auto& instruction: *basicBlock ){
-            if(allExternal.find(&instruction) != allExternal.end()){
-                result.insert(&instruction);
-            }
-        }
+    auto loopAffected = ControlVar::getAffected(&L);
+    std::set_intersection(loopAffected.begin(), loopAffected.end(), 
+                        allExternal.begin(), allExternal.end(), 
+                        std::inserter(result, result.begin()));
+    for (auto i: loopAffected){
+        i->print(llvm::errs());
+        llvm::errs() << "\n";
     }
+    exit(0);
+    
     return result;
 }
 

@@ -1,8 +1,12 @@
 #include "control_variable.hpp"
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Instruction.h>
+#include <llvm/IR/Instructions.h>
+#include <llvm/Support/Casting.h>
+#include <llvm/Transforms/Utils/LoopUtils.h>
 #include <set>
 #include <unordered_set>
+#include <iostream>
 
 
 std::set<llvm::Instruction*> ControlVar::getDirect(llvm::Module* M){
@@ -43,6 +47,60 @@ std::set<llvm::Instruction*> ControlVar::getDirect(llvm::Loop* L){
     std::set<llvm::Instruction*> result;
     for(llvm::BasicBlock* B: L->getBlocks()){
         for(llvm::Instruction* I: getDirect(B)){
+            result.insert(I);
+        }
+    }
+    return result;
+}
+
+std::set<llvm::Instruction*> ControlVar::getAffected(llvm::Instruction* I){
+    std::set<llvm::Instruction*> result;
+    for(llvm::Instruction* i: instRelated(I)){
+        if(llvm::StoreInst* s = llvm::dyn_cast<llvm::StoreInst>(i)){
+            result.insert(llvm::dyn_cast<llvm::Instruction>(s->getPointerOperand()));
+        }
+        else{
+            result.insert(i);
+        }
+
+    }
+    return result;
+}
+
+std::set<llvm::Instruction*> ControlVar::getAffected(llvm::BasicBlock* B){
+    std::set<llvm::Instruction*> result;
+    for(llvm::Instruction& I: *B){
+        for(llvm::Instruction* i: getAffected(&I)){
+            result.insert(i);
+        }
+    }
+    return result;
+}
+
+std::set<llvm::Instruction*> ControlVar::getAffected(llvm::Function* F){
+    std::set<llvm::Instruction*> result;
+    for(llvm::BasicBlock& B: *F){
+        for(llvm::Instruction* I: getAffected(&B)){
+            result.insert(I);
+        }
+    }
+    return result;
+}
+
+std::set<llvm::Instruction*> ControlVar::getAffected(llvm::Module* M){
+    std::set<llvm::Instruction*> result;
+    for(llvm::Function& F: *M){
+        for(llvm::Instruction* I: getAffected(&F)){
+            result.insert(I);
+        }
+    }
+    return result;
+}
+
+std::set<llvm::Instruction*> ControlVar::getAffected(llvm::Loop* L){
+    std::set<llvm::Instruction*> result;
+    for(llvm::BasicBlock* B: L->getBlocks()){
+        for(llvm::Instruction* I: getAffected(B)){
             result.insert(I);
         }
     }
