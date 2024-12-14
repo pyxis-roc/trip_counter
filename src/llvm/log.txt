@@ -1,0 +1,476 @@
+Loop: for_begin_ff.preheader.us.us.us
+  %exitcond147.not = icmp eq i64 %indvars.iv.next144, %wide.trip.count146, !dbg !32
+  InVar: i64 %indvars.iv143 | {0,+,1}<nuw><nsw><%for_begin_ff.preheader.us.us.us>
+  start: 0 | 
+  step: 1 | 
+  end: (-1 + (zext i32 %batch to i64))<nsw> | 
+  Loop: for_begin_yy.preheader.us.us.us.us.us.us
+    %exitcond142.not = icmp eq i64 %indvars.iv.next140, 16, !dbg !32
+    InVar: i64 %indvars.iv139 | {0,+,1}<nuw><nsw><%for_begin_yy.preheader.us.us.us.us.us.us>
+    start: 0 | 
+    step: 1 | 
+    end: 15 | 
+    Loop: for_begin_xx.preheader.us.us.us.us.us.us.us.us
+      %exitcond138.not = icmp eq i64 %indvars.iv.next135, %wide.trip.count137, !dbg !32
+      InVar: i64 %indvars.iv134 | {0,+,1}<nuw><nsw><%for_begin_xx.preheader.us.us.us.us.us.us.us.us>
+      start: 0 | 
+      step: 1 | 
+      end: (-1 + (zext i32 %in_height to i64))<nsw> | 
+      Loop: for_body_xx.us.us.us.us.us.us.us.us.us
+        %exitcond133.not = icmp eq i64 %indvars.iv.next130, %wide.trip.count132, !dbg !32
+        InVar: i64 %indvars.iv129 | {0,+,1}<nuw><nsw><%for_body_xx.us.us.us.us.us.us.us.us.us>
+        start: 0 | 
+        step: 1 | 
+        end: (-1 + (zext i32 %in_width to i64))<nsw> | 
+        Loop: for_begin_ry.preheader.us.us.us.us.us.us.us.us.us
+          %exitcond128.not = icmp eq i64 %indvars.iv.next125, %wide.trip.count127, !dbg !32
+          InVar: i64 %indvars.iv124 | {0,+,1}<nuw><nsw><%for_begin_ry.preheader.us.us.us.us.us.us.us.us.us>
+          start: 0 | 
+          step: 1 | 
+          end: (-1 + (zext i32 %in_channel to i64))<nsw> | 
+Loop: for_begin_ff.preheader.us.us
+  %exitcond115.not = icmp eq i64 %indvars.iv.next112, %wide.trip.count114, !dbg !32
+  InVar: i64 %indvars.iv111 | {0,+,1}<nuw><nsw><%for_begin_ff.preheader.us.us>
+  start: 0 | 
+  step: 1 | 
+  end: (-1 + (zext i32 %batch to i64))<nsw> | 
+  Loop: for_begin_xx.preheader.us.us57.us.us.us
+    %exitcond106.not = icmp eq i64 %indvars.iv.next103, %wide.trip.count105, !dbg !32
+    InVar: i64 %indvars.iv102 | {0,+,1}<nuw><nsw><%for_begin_xx.preheader.us.us57.us.us.us>
+    start: 0 | 
+    step: 1 | 
+    end: (-1 + (zext i32 %in_height to i64))<nsw> | 
+    Loop: vector.body386
+      %163 = icmp eq i64 %index.next388, %n.vec384, !dbg !32
+      InVar: i64 %index387 | {0,+,8}<nuw><nsw><%vector.body386>
+      start: 0 | 
+      step: 8 | 
+      end: (8 * ((-8 + (8 * (zext i28 (trunc i64 ((zext i32 %in_width to i64) /u 8) to i28) to i64))<nuw><nsw>)<nsw> /u 8))<nuw> | 
+    Loop: for_body_xx.us48.us.us.us.us.prol
+      %prol.iter.cmp.not = icmp eq i64 %prol.iter.next, %xtraiter407, !dbg !32
+      InVar: i64 %prol.iter | {0,+,1}<nuw><nsw><%for_body_xx.us48.us.us.us.us.prol>
+      start: 0 | 
+      step: 1 | 
+      end: (-1 + (zext i2 (trunc i32 %in_width to i2) to i64))<nsw> | 
+*************************************************************************************************************
+    Loop: for_body_xx.us48.us.us.us.us
+      %exitcond101.not.3 = icmp eq i64 %indvars.iv.next98.3416, %wide.trip.count100, !dbg !32
+      InVar: i64 %indvars.iv97 | {%indvars.iv97.unr,+,4}<nuw><nsw><%for_body_xx.us48.us.us.us.us>
+      start: %indvars.iv97.unr | 
+      step: 4 | 
+      end: ((4 * ((-4 + (zext i32 %in_width to i64) + (-1 * %indvars.iv97.unr)<nsw>) /u 4))<nuw> + %indvars.iv97.unr) | %indvars.iv97.unr   %indvars.iv97.unr = phi i64 [ %indvars.iv97.ph, %for_body_xx.us48.us.us.us.us.preheader ], [ %indvars.iv.next98.prol, %for_body_xx.us48.us.us.us.us.prol.loopexit.loopexit ] | 
+*************************************************************************************************************
+  Loop: for_begin_xx.preheader.us.us57.us.us.us.1
+    %exitcond106.1.not = icmp eq i64 %indvars.iv.next103.1, %wide.trip.count105, !dbg !32
+    InVar: i64 %indvars.iv102.1 | {0,+,1}<nuw><nsw><%for_begin_xx.preheader.us.us57.us.us.us.1>
+    start: 0 | 
+    step: 1 | 
+    end: (-1 + (zext i32 %in_height to i64))<nsw> | 
+    Loop: vector.body373
+      %180 = icmp eq i64 %index.next375, %n.vec371, !dbg !32
+      InVar: i64 %index374 | {0,+,8}<nuw><nsw><%vector.body373>
+      start: 0 | 
+      step: 8 | 
+      end: (8 * ((-8 + (8 * (zext i28 (trunc i64 ((zext i32 %in_width to i64) /u 8) to i28) to i64))<nuw><nsw>)<nsw> /u 8))<nuw> | 
+    Loop: for_body_xx.us48.us.us.us.us.1.prol
+      %prol.iter420.cmp.not = icmp eq i64 %prol.iter420.next, %xtraiter418, !dbg !32
+      InVar: i64 %prol.iter420 | {0,+,1}<nuw><nsw><%for_body_xx.us48.us.us.us.us.1.prol>
+      start: 0 | 
+      step: 1 | 
+      end: (-1 + (zext i2 (trunc i32 %in_width to i2) to i64))<nsw> | 
+*************************************************************************************************************
+    Loop: for_body_xx.us48.us.us.us.us.1
+      %exitcond101.1.not.3 = icmp eq i64 %indvars.iv.next98.1.3, %wide.trip.count100, !dbg !32
+      InVar: i64 %indvars.iv97.1 | {%indvars.iv97.1.unr,+,4}<nuw><nsw><%for_body_xx.us48.us.us.us.us.1>
+      start: %indvars.iv97.1.unr | 
+      step: 4 | 
+      end: ((4 * ((-4 + (zext i32 %in_width to i64) + (-1 * %indvars.iv97.1.unr)<nsw>) /u 4))<nuw> + %indvars.iv97.1.unr) | %indvars.iv97.1.unr   %indvars.iv97.1.unr = phi i64 [ %indvars.iv97.1.ph, %for_body_xx.us48.us.us.us.us.1.preheader ], [ %indvars.iv.next98.1.prol, %for_body_xx.us48.us.us.us.us.1.prol.loopexit.loopexit ] | 
+*************************************************************************************************************
+  Loop: for_begin_xx.preheader.us.us57.us.us.us.2
+    %exitcond106.2.not = icmp eq i64 %indvars.iv.next103.2, %wide.trip.count105, !dbg !32
+    InVar: i64 %indvars.iv102.2 | {0,+,1}<nuw><nsw><%for_begin_xx.preheader.us.us57.us.us.us.2>
+    start: 0 | 
+    step: 1 | 
+    end: (-1 + (zext i32 %in_height to i64))<nsw> | 
+    Loop: vector.body360
+      %198 = icmp eq i64 %index.next362, %n.vec358, !dbg !32
+      InVar: i64 %index361 | {0,+,8}<nuw><nsw><%vector.body360>
+      start: 0 | 
+      step: 8 | 
+      end: (8 * ((-8 + (8 * (zext i28 (trunc i64 ((zext i32 %in_width to i64) /u 8) to i28) to i64))<nuw><nsw>)<nsw> /u 8))<nuw> | 
+    Loop: for_body_xx.us48.us.us.us.us.2.prol
+      %prol.iter423.cmp.not = icmp eq i64 %prol.iter423.next, %xtraiter421, !dbg !32
+      InVar: i64 %prol.iter423 | {0,+,1}<nuw><nsw><%for_body_xx.us48.us.us.us.us.2.prol>
+      start: 0 | 
+      step: 1 | 
+      end: (-1 + (zext i2 (trunc i32 %in_width to i2) to i64))<nsw> | 
+*************************************************************************************************************
+    Loop: for_body_xx.us48.us.us.us.us.2
+      %exitcond101.2.not.3 = icmp eq i64 %indvars.iv.next98.2.3, %wide.trip.count100, !dbg !32
+      InVar: i64 %indvars.iv97.2 | {%indvars.iv97.2.unr,+,4}<nuw><nsw><%for_body_xx.us48.us.us.us.us.2>
+      start: %indvars.iv97.2.unr | 
+      step: 4 | 
+      end: ((4 * ((-4 + (zext i32 %in_width to i64) + (-1 * %indvars.iv97.2.unr)<nsw>) /u 4))<nuw> + %indvars.iv97.2.unr) | %indvars.iv97.2.unr   %indvars.iv97.2.unr = phi i64 [ %indvars.iv97.2.ph, %for_body_xx.us48.us.us.us.us.2.preheader ], [ %indvars.iv.next98.2.prol, %for_body_xx.us48.us.us.us.us.2.prol.loopexit.loopexit ] | 
+************************************************************************************************************* 
+  Loop: for_begin_xx.preheader.us.us57.us.us.us.3
+    %exitcond106.3.not = icmp eq i64 %indvars.iv.next103.3, %wide.trip.count105, !dbg !32
+    InVar: i64 %indvars.iv102.3 | {0,+,1}<nuw><nsw><%for_begin_xx.preheader.us.us57.us.us.us.3>
+    start: 0 | 
+    step: 1 | 
+    end: (-1 + (zext i32 %in_height to i64))<nsw> | 
+    Loop: vector.body347
+      %216 = icmp eq i64 %index.next349, %n.vec345, !dbg !32
+      InVar: i64 %index348 | {0,+,8}<nuw><nsw><%vector.body347>
+      start: 0 | 
+      step: 8 | 
+      end: (8 * ((-8 + (8 * (zext i28 (trunc i64 ((zext i32 %in_width to i64) /u 8) to i28) to i64))<nuw><nsw>)<nsw> /u 8))<nuw> | 
+    Loop: for_body_xx.us48.us.us.us.us.3.prol
+      %prol.iter426.cmp.not = icmp eq i64 %prol.iter426.next, %xtraiter424, !dbg !32
+      InVar: i64 %prol.iter426 | {0,+,1}<nuw><nsw><%for_body_xx.us48.us.us.us.us.3.prol>
+      start: 0 | 
+      step: 1 | 
+      end: (-1 + (zext i2 (trunc i32 %in_width to i2) to i64))<nsw> | 
+*************************************************************************************************************
+    Loop: for_body_xx.us48.us.us.us.us.3
+      %exitcond101.3.not.3 = icmp eq i64 %indvars.iv.next98.3.3, %wide.trip.count100, !dbg !32
+      InVar: i64 %indvars.iv97.3 | {%indvars.iv97.3.unr,+,4}<nuw><nsw><%for_body_xx.us48.us.us.us.us.3>
+      start: %indvars.iv97.3.unr | 
+      step: 4 | 
+      end: ((4 * ((-4 + (zext i32 %in_width to i64) + (-1 * %indvars.iv97.3.unr)<nsw>) /u 4))<nuw> + %indvars.iv97.3.unr) | %indvars.iv97.3.unr   %indvars.iv97.3.unr = phi i64 [ %indvars.iv97.3.ph, %for_body_xx.us48.us.us.us.us.3.preheader ], [ %indvars.iv.next98.3.prol, %for_body_xx.us48.us.us.us.us.3.prol.loopexit.loopexit ] | 
+*************************************************************************************************************
+  Loop: for_begin_xx.preheader.us.us57.us.us.us.4
+    %exitcond106.4.not = icmp eq i64 %indvars.iv.next103.4, %wide.trip.count105, !dbg !32
+    InVar: i64 %indvars.iv102.4 | {0,+,1}<nuw><nsw><%for_begin_xx.preheader.us.us57.us.us.us.4>
+    start: 0 | 
+    step: 1 | 
+    end: (-1 + (zext i32 %in_height to i64))<nsw> | 
+    Loop: vector.body334
+      %234 = icmp eq i64 %index.next336, %n.vec332, !dbg !32
+      InVar: i64 %index335 | {0,+,8}<nuw><nsw><%vector.body334>
+      start: 0 | 
+      step: 8 | 
+      end: (8 * ((-8 + (8 * (zext i28 (trunc i64 ((zext i32 %in_width to i64) /u 8) to i28) to i64))<nuw><nsw>)<nsw> /u 8))<nuw> | 
+    Loop: for_body_xx.us48.us.us.us.us.4.prol
+      %prol.iter429.cmp.not = icmp eq i64 %prol.iter429.next, %xtraiter427, !dbg !32
+      InVar: i64 %prol.iter429 | {0,+,1}<nuw><nsw><%for_body_xx.us48.us.us.us.us.4.prol>
+      start: 0 | 
+      step: 1 | 
+      end: (-1 + (zext i2 (trunc i32 %in_width to i2) to i64))<nsw> | 
+*************************************************************************************************************
+    Loop: for_body_xx.us48.us.us.us.us.4
+      %exitcond101.4.not.3 = icmp eq i64 %indvars.iv.next98.4.3, %wide.trip.count100, !dbg !32
+      InVar: i64 %indvars.iv97.4 | {%indvars.iv97.4.unr,+,4}<nuw><nsw><%for_body_xx.us48.us.us.us.us.4>
+      start: %indvars.iv97.4.unr | 
+      step: 4 | 
+      end: ((4 * ((-4 + (zext i32 %in_width to i64) + (-1 * %indvars.iv97.4.unr)<nsw>) /u 4))<nuw> + %indvars.iv97.4.unr) | %indvars.iv97.4.unr   %indvars.iv97.4.unr = phi i64 [ %indvars.iv97.4.ph, %for_body_xx.us48.us.us.us.us.4.preheader ], [ %indvars.iv.next98.4.prol, %for_body_xx.us48.us.us.us.us.4.prol.loopexit.loopexit ] | 
+*************************************************************************************************************
+  Loop: for_begin_xx.preheader.us.us57.us.us.us.5
+    %exitcond106.5.not = icmp eq i64 %indvars.iv.next103.5, %wide.trip.count105, !dbg !32
+    InVar: i64 %indvars.iv102.5 | {0,+,1}<nuw><nsw><%for_begin_xx.preheader.us.us57.us.us.us.5>
+    start: 0 | 
+    step: 1 | 
+    end: (-1 + (zext i32 %in_height to i64))<nsw> | 
+    Loop: vector.body321
+      %252 = icmp eq i64 %index.next323, %n.vec319, !dbg !32
+      InVar: i64 %index322 | {0,+,8}<nuw><nsw><%vector.body321>
+      start: 0 | 
+      step: 8 | 
+      end: (8 * ((-8 + (8 * (zext i28 (trunc i64 ((zext i32 %in_width to i64) /u 8) to i28) to i64))<nuw><nsw>)<nsw> /u 8))<nuw> | 
+    Loop: for_body_xx.us48.us.us.us.us.5.prol
+      %prol.iter432.cmp.not = icmp eq i64 %prol.iter432.next, %xtraiter430, !dbg !32
+      InVar: i64 %prol.iter432 | {0,+,1}<nuw><nsw><%for_body_xx.us48.us.us.us.us.5.prol>
+      start: 0 | 
+      step: 1 | 
+      end: (-1 + (zext i2 (trunc i32 %in_width to i2) to i64))<nsw> | 
+*************************************************************************************************************
+    Loop: for_body_xx.us48.us.us.us.us.5
+      %exitcond101.5.not.3 = icmp eq i64 %indvars.iv.next98.5.3, %wide.trip.count100, !dbg !32
+      InVar: i64 %indvars.iv97.5 | {%indvars.iv97.5.unr,+,4}<nuw><nsw><%for_body_xx.us48.us.us.us.us.5>
+      start: %indvars.iv97.5.unr | 
+      step: 4 | 
+      end: ((4 * ((-4 + (zext i32 %in_width to i64) + (-1 * %indvars.iv97.5.unr)<nsw>) /u 4))<nuw> + %indvars.iv97.5.unr) | %indvars.iv97.5.unr   %indvars.iv97.5.unr = phi i64 [ %indvars.iv97.5.ph, %for_body_xx.us48.us.us.us.us.5.preheader ], [ %indvars.iv.next98.5.prol, %for_body_xx.us48.us.us.us.us.5.prol.loopexit.loopexit ] | 
+*************************************************************************************************************
+  Loop: for_begin_xx.preheader.us.us57.us.us.us.6
+    %exitcond106.6.not = icmp eq i64 %indvars.iv.next103.6, %wide.trip.count105, !dbg !32
+    InVar: i64 %indvars.iv102.6 | {0,+,1}<nuw><nsw><%for_begin_xx.preheader.us.us57.us.us.us.6>
+    start: 0 | 
+    step: 1 | 
+    end: (-1 + (zext i32 %in_height to i64))<nsw> | 
+    Loop: vector.body308
+      %270 = icmp eq i64 %index.next310, %n.vec306, !dbg !32
+      InVar: i64 %index309 | {0,+,8}<nuw><nsw><%vector.body308>
+      start: 0 | 
+      step: 8 | 
+      end: (8 * ((-8 + (8 * (zext i28 (trunc i64 ((zext i32 %in_width to i64) /u 8) to i28) to i64))<nuw><nsw>)<nsw> /u 8))<nuw> | 
+    Loop: for_body_xx.us48.us.us.us.us.6.prol
+      %prol.iter435.cmp.not = icmp eq i64 %prol.iter435.next, %xtraiter433, !dbg !32
+      InVar: i64 %prol.iter435 | {0,+,1}<nuw><nsw><%for_body_xx.us48.us.us.us.us.6.prol>
+      start: 0 | 
+      step: 1 | 
+      end: (-1 + (zext i2 (trunc i32 %in_width to i2) to i64))<nsw> | 
+*************************************************************************************************************
+    Loop: for_body_xx.us48.us.us.us.us.6
+      %exitcond101.6.not.3 = icmp eq i64 %indvars.iv.next98.6.3, %wide.trip.count100, !dbg !32
+      InVar: i64 %indvars.iv97.6 | {%indvars.iv97.6.unr,+,4}<nuw><nsw><%for_body_xx.us48.us.us.us.us.6>
+      start: %indvars.iv97.6.unr | 
+      step: 4 | 
+      end: ((4 * ((-4 + (zext i32 %in_width to i64) + (-1 * %indvars.iv97.6.unr)<nsw>) /u 4))<nuw> + %indvars.iv97.6.unr) | %indvars.iv97.6.unr   %indvars.iv97.6.unr = phi i64 [ %indvars.iv97.6.ph, %for_body_xx.us48.us.us.us.us.6.preheader ], [ %indvars.iv.next98.6.prol, %for_body_xx.us48.us.us.us.us.6.prol.loopexit.loopexit ] | 
+*************************************************************************************************************
+  Loop: for_begin_xx.preheader.us.us57.us.us.us.7
+    %exitcond106.7.not = icmp eq i64 %indvars.iv.next103.7, %wide.trip.count105, !dbg !32
+    InVar: i64 %indvars.iv102.7 | {0,+,1}<nuw><nsw><%for_begin_xx.preheader.us.us57.us.us.us.7>
+    start: 0 | 
+    step: 1 | 
+    end: (-1 + (zext i32 %in_height to i64))<nsw> | 
+    Loop: vector.body295
+      %288 = icmp eq i64 %index.next297, %n.vec293, !dbg !32
+      InVar: i64 %index296 | {0,+,8}<nuw><nsw><%vector.body295>
+      start: 0 | 
+      step: 8 | 
+      end: (8 * ((-8 + (8 * (zext i28 (trunc i64 ((zext i32 %in_width to i64) /u 8) to i28) to i64))<nuw><nsw>)<nsw> /u 8))<nuw> | 
+    Loop: for_body_xx.us48.us.us.us.us.7.prol
+      %prol.iter438.cmp.not = icmp eq i64 %prol.iter438.next, %xtraiter436, !dbg !32
+      InVar: i64 %prol.iter438 | {0,+,1}<nuw><nsw><%for_body_xx.us48.us.us.us.us.7.prol>
+      start: 0 | 
+      step: 1 | 
+      end: (-1 + (zext i2 (trunc i32 %in_width to i2) to i64))<nsw> | 
+*************************************************************************************************************
+    Loop: for_body_xx.us48.us.us.us.us.7
+      %exitcond101.7.not.3 = icmp eq i64 %indvars.iv.next98.7.3, %wide.trip.count100, !dbg !32
+      InVar: i64 %indvars.iv97.7 | {%indvars.iv97.7.unr,+,4}<nuw><nsw><%for_body_xx.us48.us.us.us.us.7>
+      start: %indvars.iv97.7.unr | 
+      step: 4 | 
+      end: ((4 * ((-4 + (zext i32 %in_width to i64) + (-1 * %indvars.iv97.7.unr)<nsw>) /u 4))<nuw> + %indvars.iv97.7.unr) | %indvars.iv97.7.unr   %indvars.iv97.7.unr = phi i64 [ %indvars.iv97.7.ph, %for_body_xx.us48.us.us.us.us.7.preheader ], [ %indvars.iv.next98.7.prol, %for_body_xx.us48.us.us.us.us.7.prol.loopexit.loopexit ] | 
+*************************************************************************************************************
+  Loop: for_begin_xx.preheader.us.us57.us.us.us.8
+    %exitcond106.8.not = icmp eq i64 %indvars.iv.next103.8, %wide.trip.count105, !dbg !32
+    InVar: i64 %indvars.iv102.8 | {0,+,1}<nuw><nsw><%for_begin_xx.preheader.us.us57.us.us.us.8>
+    start: 0 | 
+    step: 1 | 
+    end: (-1 + (zext i32 %in_height to i64))<nsw> | 
+    Loop: vector.body282
+      %306 = icmp eq i64 %index.next284, %n.vec280, !dbg !32
+      InVar: i64 %index283 | {0,+,8}<nuw><nsw><%vector.body282>
+      start: 0 | 
+      step: 8 | 
+      end: (8 * ((-8 + (8 * (zext i28 (trunc i64 ((zext i32 %in_width to i64) /u 8) to i28) to i64))<nuw><nsw>)<nsw> /u 8))<nuw> | 
+    Loop: for_body_xx.us48.us.us.us.us.8.prol
+      %prol.iter441.cmp.not = icmp eq i64 %prol.iter441.next, %xtraiter439, !dbg !32
+      InVar: i64 %prol.iter441 | {0,+,1}<nuw><nsw><%for_body_xx.us48.us.us.us.us.8.prol>
+      start: 0 | 
+      step: 1 | 
+      end: (-1 + (zext i2 (trunc i32 %in_width to i2) to i64))<nsw> | 
+*************************************************************************************************************
+    Loop: for_body_xx.us48.us.us.us.us.8
+      %exitcond101.8.not.3 = icmp eq i64 %indvars.iv.next98.8.3, %wide.trip.count100, !dbg !32
+      InVar: i64 %indvars.iv97.8 | {%indvars.iv97.8.unr,+,4}<nuw><nsw><%for_body_xx.us48.us.us.us.us.8>
+      start: %indvars.iv97.8.unr | 
+      step: 4 | 
+      end: ((4 * ((-4 + (zext i32 %in_width to i64) + (-1 * %indvars.iv97.8.unr)<nsw>) /u 4))<nuw> + %indvars.iv97.8.unr) | %indvars.iv97.8.unr   %indvars.iv97.8.unr = phi i64 [ %indvars.iv97.8.ph, %for_body_xx.us48.us.us.us.us.8.preheader ], [ %indvars.iv.next98.8.prol, %for_body_xx.us48.us.us.us.us.8.prol.loopexit.loopexit ] | 
+*************************************************************************************************************
+  Loop: for_begin_xx.preheader.us.us57.us.us.us.9
+    %exitcond106.9.not = icmp eq i64 %indvars.iv.next103.9, %wide.trip.count105, !dbg !32
+    InVar: i64 %indvars.iv102.9 | {0,+,1}<nuw><nsw><%for_begin_xx.preheader.us.us57.us.us.us.9>
+    start: 0 | 
+    step: 1 | 
+    end: (-1 + (zext i32 %in_height to i64))<nsw> | 
+    Loop: vector.body269
+      %324 = icmp eq i64 %index.next271, %n.vec267, !dbg !32
+      InVar: i64 %index270 | {0,+,8}<nuw><nsw><%vector.body269>
+      start: 0 | 
+      step: 8 | 
+      end: (8 * ((-8 + (8 * (zext i28 (trunc i64 ((zext i32 %in_width to i64) /u 8) to i28) to i64))<nuw><nsw>)<nsw> /u 8))<nuw> | 
+    Loop: for_body_xx.us48.us.us.us.us.9.prol
+      %prol.iter444.cmp.not = icmp eq i64 %prol.iter444.next, %xtraiter442, !dbg !32
+      InVar: i64 %prol.iter444 | {0,+,1}<nuw><nsw><%for_body_xx.us48.us.us.us.us.9.prol>
+      start: 0 | 
+      step: 1 | 
+      end: (-1 + (zext i2 (trunc i32 %in_width to i2) to i64))<nsw> | 
+*************************************************************************************************************
+    Loop: for_body_xx.us48.us.us.us.us.9
+      %exitcond101.9.not.3 = icmp eq i64 %indvars.iv.next98.9.3, %wide.trip.count100, !dbg !32
+      InVar: i64 %indvars.iv97.9 | {%indvars.iv97.9.unr,+,4}<nuw><nsw><%for_body_xx.us48.us.us.us.us.9>
+      start: %indvars.iv97.9.unr | 
+      step: 4 | 
+      end: ((4 * ((-4 + (zext i32 %in_width to i64) + (-1 * %indvars.iv97.9.unr)<nsw>) /u 4))<nuw> + %indvars.iv97.9.unr) | %indvars.iv97.9.unr   %indvars.iv97.9.unr = phi i64 [ %indvars.iv97.9.ph, %for_body_xx.us48.us.us.us.us.9.preheader ], [ %indvars.iv.next98.9.prol, %for_body_xx.us48.us.us.us.us.9.prol.loopexit.loopexit ] | 
+*************************************************************************************************************
+  Loop: for_begin_xx.preheader.us.us57.us.us.us.10
+    %exitcond106.10.not = icmp eq i64 %indvars.iv.next103.10, %wide.trip.count105, !dbg !32
+    InVar: i64 %indvars.iv102.10 | {0,+,1}<nuw><nsw><%for_begin_xx.preheader.us.us57.us.us.us.10>
+    start: 0 | 
+    step: 1 | 
+    end: (-1 + (zext i32 %in_height to i64))<nsw> | 
+    Loop: vector.body256
+      %342 = icmp eq i64 %index.next258, %n.vec254, !dbg !32
+      InVar: i64 %index257 | {0,+,8}<nuw><nsw><%vector.body256>
+      start: 0 | 
+      step: 8 | 
+      end: (8 * ((-8 + (8 * (zext i28 (trunc i64 ((zext i32 %in_width to i64) /u 8) to i28) to i64))<nuw><nsw>)<nsw> /u 8))<nuw> | 
+    Loop: for_body_xx.us48.us.us.us.us.10.prol
+      %prol.iter447.cmp.not = icmp eq i64 %prol.iter447.next, %xtraiter445, !dbg !32
+      InVar: i64 %prol.iter447 | {0,+,1}<nuw><nsw><%for_body_xx.us48.us.us.us.us.10.prol>
+      start: 0 | 
+      step: 1 | 
+      end: (-1 + (zext i2 (trunc i32 %in_width to i2) to i64))<nsw> | 
+*************************************************************************************************************
+    Loop: for_body_xx.us48.us.us.us.us.10
+      %exitcond101.10.not.3 = icmp eq i64 %indvars.iv.next98.10.3, %wide.trip.count100, !dbg !32
+      InVar: i64 %indvars.iv97.10 | {%indvars.iv97.10.unr,+,4}<nuw><nsw><%for_body_xx.us48.us.us.us.us.10>
+      start: %indvars.iv97.10.unr | 
+      step: 4 | 
+      end: ((4 * ((-4 + (zext i32 %in_width to i64) + (-1 * %indvars.iv97.10.unr)<nsw>) /u 4))<nuw> + %indvars.iv97.10.unr) | %indvars.iv97.10.unr   %indvars.iv97.10.unr = phi i64 [ %indvars.iv97.10.ph, %for_body_xx.us48.us.us.us.us.10.preheader ], [ %indvars.iv.next98.10.prol, %for_body_xx.us48.us.us.us.us.10.prol.loopexit.loopexit ] | 
+*************************************************************************************************************
+  Loop: for_begin_xx.preheader.us.us57.us.us.us.11
+    %exitcond106.11.not = icmp eq i64 %indvars.iv.next103.11, %wide.trip.count105, !dbg !32
+    InVar: i64 %indvars.iv102.11 | {0,+,1}<nuw><nsw><%for_begin_xx.preheader.us.us57.us.us.us.11>
+    start: 0 | 
+    step: 1 | 
+    end: (-1 + (zext i32 %in_height to i64))<nsw> | 
+    Loop: vector.body243
+      %360 = icmp eq i64 %index.next245, %n.vec241, !dbg !32
+      InVar: i64 %index244 | {0,+,8}<nuw><nsw><%vector.body243>
+      start: 0 | 
+      step: 8 | 
+      end: (8 * ((-8 + (8 * (zext i28 (trunc i64 ((zext i32 %in_width to i64) /u 8) to i28) to i64))<nuw><nsw>)<nsw> /u 8))<nuw> | 
+    Loop: for_body_xx.us48.us.us.us.us.11.prol
+      %prol.iter450.cmp.not = icmp eq i64 %prol.iter450.next, %xtraiter448, !dbg !32
+      InVar: i64 %prol.iter450 | {0,+,1}<nuw><nsw><%for_body_xx.us48.us.us.us.us.11.prol>
+      start: 0 | 
+      step: 1 | 
+      end: (-1 + (zext i2 (trunc i32 %in_width to i2) to i64))<nsw> | 
+*************************************************************************************************************
+    Loop: for_body_xx.us48.us.us.us.us.11
+      %exitcond101.11.not.3 = icmp eq i64 %indvars.iv.next98.11.3, %wide.trip.count100, !dbg !32
+      InVar: i64 %indvars.iv97.11 | {%indvars.iv97.11.unr,+,4}<nuw><nsw><%for_body_xx.us48.us.us.us.us.11>
+      start: %indvars.iv97.11.unr | 
+      step: 4 | 
+      end: ((4 * ((-4 + (zext i32 %in_width to i64) + (-1 * %indvars.iv97.11.unr)<nsw>) /u 4))<nuw> + %indvars.iv97.11.unr) | %indvars.iv97.11.unr   %indvars.iv97.11.unr = phi i64 [ %indvars.iv97.11.ph, %for_body_xx.us48.us.us.us.us.11.preheader ], [ %indvars.iv.next98.11.prol, %for_body_xx.us48.us.us.us.us.11.prol.loopexit.loopexit ] | 
+*************************************************************************************************************
+  Loop: for_begin_xx.preheader.us.us57.us.us.us.12
+    %exitcond106.12.not = icmp eq i64 %indvars.iv.next103.12, %wide.trip.count105, !dbg !32
+    InVar: i64 %indvars.iv102.12 | {0,+,1}<nuw><nsw><%for_begin_xx.preheader.us.us57.us.us.us.12>
+    start: 0 | 
+    step: 1 | 
+    end: (-1 + (zext i32 %in_height to i64))<nsw> | 
+    Loop: vector.body230
+      %378 = icmp eq i64 %index.next232, %n.vec228, !dbg !32
+      InVar: i64 %index231 | {0,+,8}<nuw><nsw><%vector.body230>
+      start: 0 | 
+      step: 8 | 
+      end: (8 * ((-8 + (8 * (zext i28 (trunc i64 ((zext i32 %in_width to i64) /u 8) to i28) to i64))<nuw><nsw>)<nsw> /u 8))<nuw> | 
+    Loop: for_body_xx.us48.us.us.us.us.12.prol
+      %prol.iter453.cmp.not = icmp eq i64 %prol.iter453.next, %xtraiter451, !dbg !32
+      InVar: i64 %prol.iter453 | {0,+,1}<nuw><nsw><%for_body_xx.us48.us.us.us.us.12.prol>
+      start: 0 | 
+      step: 1 | 
+      end: (-1 + (zext i2 (trunc i32 %in_width to i2) to i64))<nsw> | 
+*************************************************************************************************************
+    Loop: for_body_xx.us48.us.us.us.us.12
+      %exitcond101.12.not.3 = icmp eq i64 %indvars.iv.next98.12.3, %wide.trip.count100, !dbg !32
+      InVar: i64 %indvars.iv97.12 | {%indvars.iv97.12.unr,+,4}<nuw><nsw><%for_body_xx.us48.us.us.us.us.12>
+      start: %indvars.iv97.12.unr | 
+      step: 4 | 
+      end: ((4 * ((-4 + (zext i32 %in_width to i64) + (-1 * %indvars.iv97.12.unr)<nsw>) /u 4))<nuw> + %indvars.iv97.12.unr) | %indvars.iv97.12.unr   %indvars.iv97.12.unr = phi i64 [ %indvars.iv97.12.ph, %for_body_xx.us48.us.us.us.us.12.preheader ], [ %indvars.iv.next98.12.prol, %for_body_xx.us48.us.us.us.us.12.prol.loopexit.loopexit ] | 
+*************************************************************************************************************
+  Loop: for_begin_xx.preheader.us.us57.us.us.us.13
+    %exitcond106.13.not = icmp eq i64 %indvars.iv.next103.13, %wide.trip.count105, !dbg !32
+    InVar: i64 %indvars.iv102.13 | {0,+,1}<nuw><nsw><%for_begin_xx.preheader.us.us57.us.us.us.13>
+    start: 0 | 
+    step: 1 | 
+    end: (-1 + (zext i32 %in_height to i64))<nsw> | 
+    Loop: vector.body217
+      %396 = icmp eq i64 %index.next219, %n.vec215, !dbg !32
+      InVar: i64 %index218 | {0,+,8}<nuw><nsw><%vector.body217>
+      start: 0 | 
+      step: 8 | 
+      end: (8 * ((-8 + (8 * (zext i28 (trunc i64 ((zext i32 %in_width to i64) /u 8) to i28) to i64))<nuw><nsw>)<nsw> /u 8))<nuw> | 
+    Loop: for_body_xx.us48.us.us.us.us.13.prol
+      %prol.iter456.cmp.not = icmp eq i64 %prol.iter456.next, %xtraiter454, !dbg !32
+      InVar: i64 %prol.iter456 | {0,+,1}<nuw><nsw><%for_body_xx.us48.us.us.us.us.13.prol>
+      start: 0 | 
+      step: 1 | 
+      end: (-1 + (zext i2 (trunc i32 %in_width to i2) to i64))<nsw> | 
+*************************************************************************************************************
+    Loop: for_body_xx.us48.us.us.us.us.13
+      %exitcond101.13.not.3 = icmp eq i64 %indvars.iv.next98.13.3, %wide.trip.count100, !dbg !32
+      InVar: i64 %indvars.iv97.13 | {%indvars.iv97.13.unr,+,4}<nuw><nsw><%for_body_xx.us48.us.us.us.us.13>
+      start: %indvars.iv97.13.unr | 
+      step: 4 | 
+      end: ((4 * ((-4 + (zext i32 %in_width to i64) + (-1 * %indvars.iv97.13.unr)<nsw>) /u 4))<nuw> + %indvars.iv97.13.unr) | %indvars.iv97.13.unr   %indvars.iv97.13.unr = phi i64 [ %indvars.iv97.13.ph, %for_body_xx.us48.us.us.us.us.13.preheader ], [ %indvars.iv.next98.13.prol, %for_body_xx.us48.us.us.us.us.13.prol.loopexit.loopexit ] | 
+*************************************************************************************************************
+  Loop: for_begin_xx.preheader.us.us57.us.us.us.14
+    %exitcond106.14.not = icmp eq i64 %indvars.iv.next103.14, %wide.trip.count105, !dbg !32
+    InVar: i64 %indvars.iv102.14 | {0,+,1}<nuw><nsw><%for_begin_xx.preheader.us.us57.us.us.us.14>
+    start: 0 | 
+    step: 1 | 
+    end: (-1 + (zext i32 %in_height to i64))<nsw> | 
+    Loop: vector.body204
+      %414 = icmp eq i64 %index.next206, %n.vec202, !dbg !32
+      InVar: i64 %index205 | {0,+,8}<nuw><nsw><%vector.body204>
+      start: 0 | 
+      step: 8 | 
+      end: (8 * ((-8 + (8 * (zext i28 (trunc i64 ((zext i32 %in_width to i64) /u 8) to i28) to i64))<nuw><nsw>)<nsw> /u 8))<nuw> | 
+    Loop: for_body_xx.us48.us.us.us.us.14.prol
+      %prol.iter459.cmp.not = icmp eq i64 %prol.iter459.next, %xtraiter457, !dbg !32
+      InVar: i64 %prol.iter459 | {0,+,1}<nuw><nsw><%for_body_xx.us48.us.us.us.us.14.prol>
+      start: 0 | 
+      step: 1 | 
+      end: (-1 + (zext i2 (trunc i32 %in_width to i2) to i64))<nsw> | 
+*************************************************************************************************************
+    Loop: for_body_xx.us48.us.us.us.us.14
+      %exitcond101.14.not.3 = icmp eq i64 %indvars.iv.next98.14.3, %wide.trip.count100, !dbg !32
+      InVar: i64 %indvars.iv97.14 | {%indvars.iv97.14.unr,+,4}<nuw><nsw><%for_body_xx.us48.us.us.us.us.14>
+      start: %indvars.iv97.14.unr | 
+      step: 4 | 
+      end: ((4 * ((-4 + (zext i32 %in_width to i64) + (-1 * %indvars.iv97.14.unr)<nsw>) /u 4))<nuw> + %indvars.iv97.14.unr) | %indvars.iv97.14.unr   %indvars.iv97.14.unr = phi i64 [ %indvars.iv97.14.ph, %for_body_xx.us48.us.us.us.us.14.preheader ], [ %indvars.iv.next98.14.prol, %for_body_xx.us48.us.us.us.us.14.prol.loopexit.loopexit ] | 
+*************************************************************************************************************
+  Loop: for_begin_xx.preheader.us.us57.us.us.us.15
+    %exitcond106.15.not = icmp eq i64 %indvars.iv.next103.15, %wide.trip.count105, !dbg !32
+    InVar: i64 %indvars.iv102.15 | {0,+,1}<nuw><nsw><%for_begin_xx.preheader.us.us57.us.us.us.15>
+    start: 0 | 
+    step: 1 | 
+    end: (-1 + (zext i32 %in_height to i64))<nsw> | 
+    Loop: vector.body
+      %432 = icmp eq i64 %index.next, %n.vec, !dbg !32
+      InVar: i64 %index | {0,+,8}<nuw><nsw><%vector.body>
+      start: 0 | 
+      step: 8 | 
+      end: (8 * ((-8 + (8 * (zext i28 (trunc i64 ((zext i32 %in_width to i64) /u 8) to i28) to i64))<nuw><nsw>)<nsw> /u 8))<nuw> | 
+    Loop: for_body_xx.us48.us.us.us.us.15.prol
+      %prol.iter462.cmp.not = icmp eq i64 %prol.iter462.next, %xtraiter460, !dbg !32
+      InVar: i64 %prol.iter462 | {0,+,1}<nuw><nsw><%for_body_xx.us48.us.us.us.us.15.prol>
+      start: 0 | 
+      step: 1 | 
+      end: (-1 + (zext i2 (trunc i32 %in_width to i2) to i64))<nsw> | 
+*************************************************************************************************************
+    Loop: for_body_xx.us48.us.us.us.us.15
+      %exitcond101.15.not.3 = icmp eq i64 %indvars.iv.next98.15.3, %wide.trip.count100, !dbg !32
+      InVar: i64 %indvars.iv97.15 | {%indvars.iv97.15.unr,+,4}<nuw><nsw><%for_body_xx.us48.us.us.us.us.15>
+      start: %indvars.iv97.15.unr | 
+      step: 4 | 
+      end: ((4 * ((-4 + (zext i32 %in_width to i64) + (-1 * %indvars.iv97.15.unr)<nsw>) /u 4))<nuw> + %indvars.iv97.15.unr) | %indvars.iv97.15.unr   %indvars.iv97.15.unr = phi i64 [ %indvars.iv97.15.ph, %for_body_xx.us48.us.us.us.us.15.preheader ], [ %indvars.iv.next98.15.prol, %for_body_xx.us48.us.us.us.us.15.prol.loopexit.loopexit ] | 
+*************************************************************************************************************
+Loop: for_begin_i1.preheader.us.us.us
+  %exitcond96.not = icmp eq i64 %indvars.iv.next93, %wide.trip.count95, !dbg !32
+  InVar: i64 %indvars.iv92 | {0,+,1}<nuw><nsw><%for_begin_i1.preheader.us.us.us>
+  start: 0 | 
+  step: 1 | 
+  end: (-1 + (zext i32 %batch to i64))<nsw> | 
+  Loop: for_begin_i2.preheader.us.us.us.us.us
+    %exitcond91.not = icmp eq i64 %indvars.iv.next88, %wide.trip.count90, !dbg !32
+    InVar: i64 %indvars.iv87 | {0,+,1}<nuw><nsw><%for_begin_i2.preheader.us.us.us.us.us>
+    start: 0 | 
+    step: 1 | 
+    end: (-1 + (zext i32 %in_channel to i64))<nsw> | 
+    Loop: for_begin_i3.preheader.us.us.us.us.us.us
+      %exitcond86.not = icmp eq i64 %indvars.iv.next82, %wide.trip.count85, !dbg !32
+      InVar: i64 %indvars.iv81 | {0,+,1}<nuw><nsw><%for_begin_i3.preheader.us.us.us.us.us.us>
+      start: 0 | 
+      step: 1 | 
+      end: (-1 + (zext i32 (1 smax (2 + %in_height)) to i64))<nsw> | 
+      Loop: for_body_i3.us20.us.us.us.us.us
+        %niter.ncmp.1 = icmp eq i64 %niter.next.1, %unroll_iter, !dbg !32
+        InVar: i64 %niter | {0,+,2}<nuw><nsw><%for_body_i3.us20.us.us.us.us.us>
+        start: 0 | 
+        step: 2 | 
+        end: (2 * ((-2 + (2 * ((-1 + (zext i32 (1 smax (2 + %in_width)) to i64))<nsw> /u 2))<nuw><nsw>)<nsw> /u 2))<nuw> | 

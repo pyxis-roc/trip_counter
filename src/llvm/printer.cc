@@ -67,7 +67,7 @@ void analyzeLoop(Module &M) {
     }
 }
 
-void printLoopInfo(Loop &L, ScalarEvolution &SE,v_set induction_var, int depth){
+void printLoopInfo(Loop &L, ScalarEvolution &SE,v_set keep_unexpanded, int depth){
     std::string indent(depth*2, ' ');
 
     errs() << indent << "Loop: " << L.getName() << "\n";
@@ -78,7 +78,7 @@ void printLoopInfo(Loop &L, ScalarEvolution &SE,v_set induction_var, int depth){
     PHINode* i = L.getInductionVariable(SE);
     if (!i) assert(0 && "No induction variable found");
     
-    induction_var.insert(static_cast<const Value*>(i));
+    keep_unexpanded.insert(static_cast<const Value*>(i));
     const SCEVAddRecExpr* expr = cast<SCEVAddRecExpr>(SE.getSCEV(i));
     const SCEV* start = expr->getStart();
     const SCEV* step = expr->getStepRecurrence(SE);
@@ -110,9 +110,9 @@ void printLoopInfo(Loop &L, ScalarEvolution &SE,v_set induction_var, int depth){
     errs() << "\n";
 
     for (Loop* SL : L.getSubLoops()) {
-        printLoopInfo(*SL, SE, induction_var, depth + 1);
+        printLoopInfo(*SL, SE, keep_unexpanded, depth + 1);
     }
-    induction_var.erase(i);
+    keep_unexpanded.erase(i);
 }
 
 void printRootExpr(const SCEV& E, v_set keep_unexpanded){

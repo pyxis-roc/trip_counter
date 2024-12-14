@@ -59,9 +59,13 @@ void analyzeLoop(Module &M) {
         ScalarEvolution &SE = FAM.getResult<ScalarEvolutionAnalysis>(F);
         
         for (Loop *L : LI) {
-            LoopSummary LS(*L, SE);
-            if(LS.isAffect(&M)){
-                LS.showAll(&M);
+            LoopSummary LS(M, *L, SE);
+            if (LS.isSummarizable()){
+                L->print(llvm::errs());
+                llvm::errs() << " is summarizable\n";
+            }
+            else{
+                LS.showAll();
             }
         }
     }
