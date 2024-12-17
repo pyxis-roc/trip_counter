@@ -60,15 +60,10 @@ void analyzeLoop(Module &M) {
         
         for (Loop *L : LI) {
             LoopSummary LS(M, *L, SE);
-            if (LS.isSummarizable()){
-                L->print(llvm::errs());
-                llvm::errs() << " is summarizable\n";
-            }
-            else{
-                LS.showAll();
-            }
+            LS.trySummarize();
         }
     }
+    M.dump();
 }
 
 

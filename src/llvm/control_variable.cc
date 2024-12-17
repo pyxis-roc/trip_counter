@@ -1,4 +1,6 @@
 #include "control_variable.hpp"
+#include <cstdlib>
+#include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Instruction.h>
 #include <llvm/IR/Instructions.h>
@@ -91,8 +93,6 @@ std::set<llvm::Instruction*> ControlVar::getAffected(llvm::Module* M){
 }
 
 bool ControlVar::isExternal(llvm::Instruction* I, llvm::Loop* L){
-    // native implementation, not considering the case where the control is determined by outside
-    // through a intermediate variable
     return L->contains(I);
 }
 
@@ -110,10 +110,44 @@ bool ControlVar::isDirect(llvm::Instruction* I){
     return I->isTerminator();
 }
 
+std::set<llvm::Instruction*> ControlVar::getDepend(llvm::Instruction* I){
+    if (!I->isTerminator()) return {};
+    return instDepend(I);
+}
+
+std::set<llvm::Instruction*> ControlVar::getDepend(llvm::BasicBlock* B){
+    std::set<llvm::Instruction*> result;
+    for(llvm::Instruction& I: *B){
+        for(llvm::Instruction* i: getDepend(&I)){
+            result.insert(i);
+        }
+    }
+    return result;
+}
+
+std::set<llvm::Instruction*> ControlVar::getDepend(llvm::Function* F){
+    std::set<llvm::Instruction*> result;
+    for(llvm::BasicBlock& B: *F){
+        for(llvm::Instruction* I: getDepend(&B)){
+            result.insert(I);
+        }
+    }
+    return result;
+}
+
+std::set<llvm::Instruction*> ControlVar::getDepend(llvm::Module* M){
+    std::set<llvm::Instruction*> result;
+    for(llvm::Function& F: *M){
+        for(llvm::Instruction* I: getDepend(&F)){
+            result.insert(I);
+        }
+    }
+    return result;
+}
+
 std::set<llvm::Instruction*> ControlVar::extendTouch(std::set<llvm::Instruction*> S){
     std::set<llvm::Instruction*> result;
     for(llvm::Instruction* I: S){
-        result.insert(I);
         for(llvm::Instruction* i: instTouch(I)){
             result.insert(i);
         }
@@ -124,7 +158,6 @@ std::set<llvm::Instruction*> ControlVar::extendTouch(std::set<llvm::Instruction*
 std::set<llvm::Instruction*> ControlVar::extendDepend(std::set<llvm::Instruction *> S){
     std::set<llvm::Instruction*> result;
     for(llvm::Instruction* I: S){
-        result.insert(I);
         for(llvm::Instruction* i: instDepend(I)){
             result.insert(i);
         }
@@ -151,7 +184,9 @@ std::set<llvm::Instruction*> instTouchImp(llvm::Instruction* I, std::unordered_s
 
 std::set<llvm::Instruction*> ControlVar::instTouch(llvm::Instruction* I){
     auto visited = std::unordered_set<llvm::Instruction*>();
-    return instTouchImp(I, visited);
+    auto result = instTouchImp(I, visited);
+    result.insert(I);
+    return result;
 }
 
 std::set<llvm::Instruction*> instDependImp(llvm::Instruction* I, std::unordered_set<llvm::Instruction*>& visited){
@@ -173,5 +208,42 @@ std::set<llvm::Instruction*> instDependImp(llvm::Instruction* I, std::unordered_
 
 std::set<llvm::Instruction*> ControlVar::instDepend(llvm::Instruction* I){
     auto visited = std::unordered_set<llvm::Instruction*>();
-    return instDependImp(I, visited);
+    auto result = instDependImp(I, visited);
+    result.insert(I);
+    return result;
+}
+
+llvm::BasicBlock* ControlVar::replaceWithControl(llvm::BasicBlock* B){
+    llvm::BasicBlock* newBlock = llvm::BasicBlock::Create(B->getContext(), "newBlock", B->getParent());
+    auto controlDependent = ControlVar::getDepend(B);
+
+    for(auto& I: *B){
+        if(controlDependent.find(&I) != controlDependent.end()){
+            llvm::Instruction* newInst = I.clone();
+            newInst->insertInto(newBlock, newBlock->end());
+        }
+    }
+
+    B->replaceAllUsesWith(newBlock);
+    llvm::BranchInst::Create(B->getUniqueSuccessor(), newBlock);
+    // B->eraseFromParent();
+
+    return newBlock;
+}
+
+llvm::BasicBlock* ControlVar::eraseComputation(llvm::BasicBlock* B){
+    auto controlDependent = ControlVar::getDepend(B);
+
+    std::set<llvm::Instruction*> toErase;
+    for(auto& I: *B){
+        if(controlDependent.find(&I) == controlDependent.end()){
+            I.replaceAllUsesWith(llvm::UndefValue::get(I.getType()));
+            toErase.insert(&I);
+        }
+    }
+    for(auto* I: toErase){
+        I->eraseFromParent();
+    }
+
+    return B;
 }
