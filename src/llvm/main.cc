@@ -1,37 +1,12 @@
-#include "llvm/IR/LLVMContext.h"
-#include "llvm/IR/Module.h"
-#include "llvm/IR/Function.h"
-#include "llvm/IR/BasicBlock.h"
-#include "llvm/IR/Instruction.h"
 #include "llvm/IRReader/IRReader.h"
-#include "llvm/Support/SourceMgr.h"
-#include "llvm/Support/raw_ostream.h"
-#include "llvm/Transforms/Utils/LoopSimplify.h"
 #include "llvm/Passes/PassBuilder.h"
-#include "llvm/Passes/PassPlugin.h"
-#include "llvm/Analysis/LoopInfo.h"
-#include "llvm/Support/SourceMgr.h"
-#include "llvm/Support/raw_ostream.h"
-#include "llvm/Transforms/Scalar.h"
-#include <cassert>
-#include <cerrno>
-#include <csignal>
 #include <iostream>
-#include <llvm/Analysis/ScalarEvolutionExpressions.h>
-#include <llvm/IR/Argument.h>
-#include <llvm/IR/CFG.h>
-#include <llvm/IR/InstrTypes.h>
-#include <llvm/IR/Instructions.h>
-#include <llvm/IR/Operator.h>
-#include <llvm/IR/Use.h>
-#include <llvm/IR/Value.h>
-#include <llvm/Support/Casting.h>
-#include "llvm/IR/Dominators.h"
-#include "llvm/Analysis/ScalarEvolution.h"
-#include <memory>
-#include "control_variable.hpp"
+#include <llvm/Support/raw_ostream.h>
+#include <vector>
 #include "loop_summary.hpp"
-
+#include "block_counting.hpp"
+#include "printer.hpp"
+                                     
 using namespace llvm;
 
 void analyzeLoop(Module &M) {
@@ -42,6 +17,7 @@ void analyzeLoop(Module &M) {
     FunctionAnalysisManager FAM;
     FunctionPassManager FPM;
     ModulePassManager MPM;
+    ModuleAnalysisManager MAM;
 
     PassBuilder PB;
 
@@ -60,9 +36,14 @@ void analyzeLoop(Module &M) {
         
         for (Loop *L : LI) {
             LoopSummary LS(M, *L, SE);
+            if(!LS.isSummarizable()) continue;
+
+            Debug::printLoopInfo(*L, SE);
             LS.trySummarize();
         }
     }
+    CountBasicBlocks::insertCounter(M);
+    
     M.dump();
 }
 

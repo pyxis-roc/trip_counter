@@ -1,43 +1,11 @@
-#include "llvm/IR/LLVMContext.h"
-#include "llvm/IR/Module.h"
-#include "llvm/IR/Function.h"
-#include "llvm/IR/BasicBlock.h"
-#include "llvm/IR/Instruction.h"
-#include "llvm/IRReader/IRReader.h"
-#include "llvm/Support/SourceMgr.h"
-#include "llvm/Support/raw_ostream.h"
-#include "llvm/Transforms/Utils/LoopSimplify.h"
-#include "llvm/Passes/PassBuilder.h"
-#include "llvm/Passes/PassPlugin.h"
-#include "llvm/Analysis/LoopInfo.h"
-#include "llvm/Support/SourceMgr.h"
-#include "llvm/Support/raw_ostream.h"
-#include "llvm/Transforms/Scalar.h"
-#include <cassert>
-#include <cerrno>
-#include <csignal>
-#include <iostream>
-#include <llvm/Analysis/ScalarEvolutionExpressions.h>
-#include <llvm/IR/Argument.h>
-#include <llvm/IR/CFG.h>
-#include <llvm/IR/InstrTypes.h>
-#include <llvm/IR/Instructions.h>
-#include <llvm/IR/Operator.h>
-#include <llvm/IR/Use.h>
-#include <llvm/IR/Value.h>
-#include <llvm/Support/Casting.h>
-#include "llvm/IR/Dominators.h"
-#include "llvm/Analysis/ScalarEvolution.h"
-#include <memory>
+#include <llvm/IR/Module.h>
+#include "printer.hpp"
+
 
 using namespace llvm;
-using v_set = std::set<const Value*>;
 
-void printLoopInfo(Loop &L, ScalarEvolution &SE, v_set keep_unexpanded = v_set(), int depth = 0);
-void printRootExpr(const SCEV& E, v_set keep_unexpanded = v_set());
-void printExpanded(Value*, v_set keep_unexpanded = v_set());
 
-void analyzeLoop(Module &M) {
+void Debug::analyzeLoop(Module &M) {
     LLVMContext &Context = M.getContext();
 
     // Initialize pass managers
@@ -67,7 +35,7 @@ void analyzeLoop(Module &M) {
     }
 }
 
-void printLoopInfo(Loop &L, ScalarEvolution &SE,v_set keep_unexpanded, int depth){
+void Debug::printLoopInfo(Loop &L, ScalarEvolution &SE,v_set keep_unexpanded, int depth){
     std::string indent(depth*2, ' ');
 
     errs() << indent << "Loop: " << L.getName() << "\n";
@@ -115,7 +83,7 @@ void printLoopInfo(Loop &L, ScalarEvolution &SE,v_set keep_unexpanded, int depth
     keep_unexpanded.erase(i);
 }
 
-void printRootExpr(const SCEV& E, v_set keep_unexpanded){
+void Debug::printRootExpr(const SCEV& E, v_set keep_unexpanded){
     for(const SCEV* op: E.operands()){
         if(const SCEVUnknown* u = dyn_cast<SCEVUnknown>(op)){
             u->print(errs());
@@ -126,7 +94,7 @@ void printRootExpr(const SCEV& E, v_set keep_unexpanded){
     }
 }
 
-void printExpanded(Value* I, v_set keep_unexpanded){
+void Debug::printExpanded(Value* I, v_set keep_unexpanded){
     //expand cases
     if(Instruction* i = dyn_cast<Instruction>(I)){
         if (i->getOpcode() == Instruction::PHI){
@@ -147,24 +115,9 @@ void printExpanded(Value* I, v_set keep_unexpanded){
     }
 }
 
-
-int main (int argc, char** argv){
-    if(argc < 2){
-        std::cerr << "Usage: " << argv[0] << " <LLVM IR file>\n";
-        return 1;
+void Debug::printLoopBlocks(llvm::Loop &L){
+    errs() << "Loop: " << L.getName() << "\n";
+    for (BasicBlock* BB : L.getBlocks()){
+        errs() << "  " << BB->getName() << "\n";
     }
-
-    LLVMContext Context;
-    SMDiagnostic Error;
-    std::unique_ptr<Module> M = parseIRFile(argv[1], Error, Context);
-
-    if (!M) {
-        std::cerr << "Error reading IR file: ";
-        Error.print(argv[0], errs());
-        return 1;
-    }
-
-    analyzeLoop(*M);
-    
-    return 0;
 }

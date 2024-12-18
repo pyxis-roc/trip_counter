@@ -7,7 +7,8 @@
 #include <llvm/IR/Module.h>
 
 class CountBasicBlocks{
-    public:
+    public:    
+    // for each basic block in the module, insert a counter
+    // at the end of the module, print the count of each basic block
     static std::set<std::string> insertCounter(llvm::Module &M);
-
 };
