@@ -1,11 +1,12 @@
-#include "llvm/IRReader/IRReader.h"
-#include "llvm/Passes/PassBuilder.h"
+#include <llvm/IRReader/IRReader.h>
+#include <llvm/Passes/PassBuilder.h>
+#include <llvm/IR/Module.h>
 #include <iostream>
 #include <llvm/Support/raw_ostream.h>
-#include <vector>
 #include "loop_summary.hpp"
 #include "block_counting.hpp"
 #include "printer.hpp"
+#include "control_variable.hpp"
                                      
 using namespace llvm;
 
@@ -44,7 +45,7 @@ void analyzeLoop(Module &M) {
     }
     CountBasicBlocks::insertCounter(M);
     
-    M.dump();
+    M.print(errs(), nullptr);
 }
 
 

@@ -7,14 +7,13 @@
 
 #pragma once
 
-#include <llvm/Analysis/ScalarEvolution.h>
-#include <llvm/Analysis/LoopInfo.h>
-#include <llvm/IR/BasicBlock.h>
-#include <llvm/IR/Function.h>
-#include <llvm/IR/Instruction.h>
-#include <llvm/IR/Module.h>
-#include <llvm/IR/Type.h>
 #include <set>
+#include "llvm/Analysis/ScalarEvolution.h"
+#include "llvm/Analysis/LoopInfo.h"
+#include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/Function.h"
+#include "llvm/IR/Instruction.h"
+#include "llvm/IR/Module.h"
 
 class ControlVar{
     public:
@@ -86,26 +85,26 @@ class ControlVar{
         static bool isExternal(llvm::Instruction* I, llvm::Loop* L);
 
         // Get all control variables in a module/basicblock/loop/instruction
-        template <typename T>
-        static std::set<llvm::Instruction*> getAll(T* codeBase){
-            std::set<llvm::Instruction*> result;
-            for(llvm::Instruction* i: getDirect(codeBase)){
-                result.insert(i);
-                for(llvm::Instruction* j: instTouch(i)){
-                    result.insert(j);
-                }
-            }
-            return result;
-        }
+        // template <typename T>
+        // static std::set<llvm::Instruction*> getAll(T* codeBase){
+        //     std::set<llvm::Instruction*> result;
+        //     for(llvm::Instruction* i: getDirect(codeBase)){
+        //         result.insert(i);
+        //         for(llvm::Instruction* j: instTouch(i)){
+        //             result.insert(j);
+        //         }
+        //     }
+        //     return result;
+        // }
 
         // Show all control variables in a module/basic block/loop/instruction
-        template <typename T>
-        static void showAll(T* codeBase){
-            for(llvm::Instruction* I: getAll(codeBase)){
-                I->print(llvm::errs());
-                llvm::errs() << "\n";
-            }
-        }
+        // template <typename T>
+        // static void showAll(T* codeBase){
+        //     for(llvm::Instruction* I: getAll(codeBase)){
+        //         I->print(llvm::errs());
+        //         llvm::errs() << "\n";
+        //     }
+        // }
 
         // for a given basic block with only one predecessor and one successor
         // erase all computation in the loop, only keep the control flow

@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# Check if an argument is provided
+if [ -z "$1" ]; then
+    echo "No argument provided. Usage: ./create_cfg.sh <arg>"
+    exit 1
+fi
+
+# Get the argument
+ll=$1
+
+opt -passes=dot-cfg --disable-output $ll
+for file in .*.dot; do
+    dot -Tpdf "$file" -o "${file%.dot}.pdf"
+    rm "$file"
+done

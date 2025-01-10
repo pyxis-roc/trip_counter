@@ -1,14 +1,12 @@
-#include "control_variable.hpp"
 #include <cstdlib>
-#include <llvm/IR/BasicBlock.h>
-#include <llvm/IR/Function.h>
-#include <llvm/IR/Instruction.h>
-#include <llvm/IR/Instructions.h>
-#include <llvm/Support/Casting.h>
-#include <llvm/Support/raw_ostream.h>
-#include <llvm/Transforms/Utils/LoopUtils.h>
-#include <set>
 #include <unordered_set>
+#include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/Function.h"
+#include "llvm/IR/Instruction.h"
+#include "llvm/IR/Instructions.h"
+#include "llvm/Support/Casting.h"
+#include "llvm/Transforms/Utils/LoopUtils.h"
+#include "control_variable.hpp"
 
 
 std::set<llvm::Instruction*> ControlVar::getDirect(llvm::Module* M){
@@ -107,11 +105,11 @@ std::set<llvm::Instruction*> ControlVar::getAffected(llvm::Loop* L){
 }
 
 bool ControlVar::isDirect(llvm::Instruction* I){
-    return I->isTerminator();
+    return I->isTerminator() && !llvm::dyn_cast<llvm::ReturnInst>(I);
 }
 
 std::set<llvm::Instruction*> ControlVar::getDepend(llvm::Instruction* I){
-    if (!I->isTerminator()) return {};
+    if (!isDirect(I)) return {};
     return instDepend(I);
 }
 

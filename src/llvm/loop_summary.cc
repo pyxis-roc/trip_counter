@@ -1,16 +1,14 @@
-#include "loop_summary.hpp"
-#include "control_variable.hpp"
 #include <algorithm>
 #include <cstdlib>
 #include <iterator>
-#include <llvm/ADT/STLExtras.h>
-#include <llvm/ADT/SmallVector.h>
-#include <llvm/Analysis/LoopInfo.h>
-#include <llvm/IR/BasicBlock.h>
-#include <llvm/IR/Instruction.h>
-#include <llvm/IR/Intrinsics.h>
-#include <llvm/Support/raw_ostream.h>
 #include <set>
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Analysis/LoopInfo.h"
+#include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/Instruction.h"
+#include "llvm/Support/raw_ostream.h"
+#include "loop_summary.hpp"
+#include "control_variable.hpp"
 
 std::set<llvm::Instruction*> LoopSummary::getAffectOutside(){
     auto loopControlDirect = ControlVar::getDirect(&L);

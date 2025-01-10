@@ -5,13 +5,12 @@
 
 #pragma once
 
-#include <llvm/ADT/STLExtras.h>
-#include <llvm/Analysis/LoopInfo.h>
-#include <llvm/Analysis/ScalarEvolution.h>
-#include <llvm/IR/BasicBlock.h>
-#include <llvm/IR/Instruction.h>
-#include <llvm/IR/Module.h>
 #include <set>
+#include "llvm/Analysis/LoopInfo.h"
+#include "llvm/Analysis/ScalarEvolution.h"
+#include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/Instruction.h"
+#include "llvm/IR/Module.h"
 
 
 class LoopSummary {

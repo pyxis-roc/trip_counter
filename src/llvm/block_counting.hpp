@@ -4,7 +4,7 @@
 #pragma once
 
 #include <set>
-#include <llvm/IR/Module.h>
+#include "llvm/IR/Module.h"
 
 class CountBasicBlocks{
     public:    

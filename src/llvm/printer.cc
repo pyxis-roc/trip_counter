@@ -1,7 +1,6 @@
 #include <llvm/IR/Module.h>
 #include "printer.hpp"
 
-
 using namespace llvm;
 
 
@@ -39,9 +38,6 @@ void Debug::printLoopInfo(Loop &L, ScalarEvolution &SE,v_set keep_unexpanded, in
     std::string indent(depth*2, ' ');
 
     errs() << indent << "Loop: " << L.getName() << "\n";
-    errs() << indent;
-    L.getLatchCmpInst() ->print(errs());
-    errs() << "\n";
 
     PHINode* i = L.getInductionVariable(SE);
     if (!i) assert(0 && "No induction variable found");
