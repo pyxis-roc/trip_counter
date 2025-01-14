@@ -20,20 +20,30 @@ class ControlVar{
         ControlVar();
         ~ControlVar();
 
-        // Get all direct control variables in a code base
-        static std::set<llvm::Instruction*> getDirect(llvm::Instruction* );
-        static std::set<llvm::Instruction*> getDirect(llvm::BasicBlock* );
-        static std::set<llvm::Instruction*> getDirect(llvm::Function* );
-        static std::set<llvm::Instruction*> getDirect(llvm::Module* );
-        static std::set<llvm::Instruction*> getDirect(llvm::Loop* );
+        // Get all Instructions in a code base
+        static std::set<llvm::Instruction*> getInstructions(llvm::Instruction* I);
+        static std::set<llvm::Instruction*> getInstructions(llvm::BasicBlock* B);
+        static std::set<llvm::Instruction*> getInstructions(llvm::Function* F);
+        static std::set<llvm::Instruction*> getInstructions(llvm::Module* M);
+        static std::set<llvm::Instruction*> getInstructions(llvm::Loop* L);
 
         template<typename Iterable>
-        static std::set<llvm::Instruction*> getDirect(Iterable* itr){
+        static std::set<llvm::Instruction*> getInstructions(Iterable* itr){
             std::set<llvm::Instruction*> result;
             for(auto* base: *itr){
-                for(auto* i: getDirect(base)){
+                for(auto* i: getInstructions(base)){
                     result.insert(i);
                 }
+            }
+            return result;
+        }
+
+        // Get all direct control variables in a code base
+        template<typename CodebaseT>
+        static std::set<llvm::Instruction*> getDirect(CodebaseT* codeBase){
+            std::set<llvm::Instruction*> result;
+            for(auto* I: getInstructions(codeBase)){
+                if(isDirect(I)) result.insert(I);
             }
             return result;
         }
@@ -62,7 +72,13 @@ class ControlVar{
             return result;
         }
 
-        // Get all variables that decide the control variables of the given code base
+        //check if an instruction is affected by the given code base
+        template<typename CodebaseT>
+        static bool isAffected(llvm::Instruction* I, CodebaseT* codeBase){
+            return getAffected(codeBase).find(I) != getAffected(codeBase).end();
+        }
+
+        // Get all variables that decide the control of the given code base
         static std::set<llvm::Instruction*> getDepend(llvm::Instruction* I);    // base case
         static std::set<llvm::Instruction*> getDepend(llvm::BasicBlock* B);
         static std::set<llvm::Instruction*> getDepend(llvm::Function* F);
@@ -80,37 +96,30 @@ class ControlVar{
             return result;
         }
 
+        //check if an instruction is a control depend variable in a code base
+        template<typename CodebaseT>
+        static bool isDepend(llvm::Instruction* I, CodebaseT* codeBase){
+            return getDepend(codeBase).find(I) != getDepend(codeBase).end();
+        }
+
         // Check if an instruction is fully determined by outside of the given code base 
         static bool isExternal(llvm::Instruction* I, llvm::BasicBlock* B);
         static bool isExternal(llvm::Instruction* I, llvm::Loop* L);
 
-        // Get all control variables in a module/basicblock/loop/instruction
-        // template <typename T>
-        // static std::set<llvm::Instruction*> getAll(T* codeBase){
-        //     std::set<llvm::Instruction*> result;
-        //     for(llvm::Instruction* i: getDirect(codeBase)){
-        //         result.insert(i);
-        //         for(llvm::Instruction* j: instTouch(i)){
-        //             result.insert(j);
-        //         }
-        //     }
-        //     return result;
-        // }
 
-        // Show all control variables in a module/basic block/loop/instruction
-        // template <typename T>
-        // static void showAll(T* codeBase){
-        //     for(llvm::Instruction* I: getAll(codeBase)){
-        //         I->print(llvm::errs());
-        //         llvm::errs() << "\n";
-        //     }
-        // }
+        // erase an instruction
+        static void erase(llvm::Instruction* I);
+        // erase a set of instructions, but keep the control dependent instructions
+        static void erase(std::set<llvm::Instruction*> all, std::set<llvm::Instruction*> controlDependent);
 
-        // for a given basic block with only one predecessor and one successor
-        // erase all computation in the loop, only keep the control flow
-        static::llvm::BasicBlock* replaceWithControl(llvm::BasicBlock* B);
-        static::llvm::BasicBlock* eraseComputation(llvm::BasicBlock* B);
-        
+        // erase all computation, only keep variables that control the given code base 
+        template<typename CodebaseT>
+        static void eraseComputation(CodebaseT* codeBase){
+            auto controlDependent = getDepend(codeBase);
+            auto instructions = getInstructions(codeBase);
+            erase(instructions, controlDependent);
+        }
+    
     private:
         // check if an instruction is a direct control variable
         static bool isDirect(llvm::Instruction* I);

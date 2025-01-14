@@ -35,15 +35,14 @@ void analyzeLoop(Module &M) {
         LoopInfo &LI = FAM.getResult<LoopAnalysis>(F);
         ScalarEvolution &SE = FAM.getResult<ScalarEvolutionAnalysis>(F);
         
+        ControlVar::eraseComputation(&F);
         for (Loop *L : LI) {
             LoopSummary LS(M, *L, SE);
-            if(!LS.isSummarizable()) continue;
-
-            Debug::printLoopInfo(*L, SE);
             LS.trySummarize();
+            // if(LS.isSummarizable()) Debug::printLoopInfo(*L, SE);
         }
     }
-    CountBasicBlocks::insertCounter(M);
+    // CountBasicBlocks::insertCounter(M);
     
     M.print(errs(), nullptr);
 }

@@ -1,47 +1,51 @@
 #include <cstdlib>
+#include <iostream>
+#include <set>
 #include <unordered_set>
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/Support/Casting.h"
+#include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/LoopUtils.h"
 #include "control_variable.hpp"
 
-
-std::set<llvm::Instruction*> ControlVar::getDirect(llvm::Module* M){
-    std::set<llvm::Instruction*> result;
-    for(llvm::Function& F: *M)
-    for(llvm::BasicBlock& B: F)
-    for(llvm::Instruction& I: B){
-        if (isDirect(&I)) result.insert(&I);
-    }
-    return result;
+std::set<llvm::Instruction*> ControlVar::getInstructions(llvm::Instruction* I){
+    return {I};
 }
 
-std::set<llvm::Instruction*> ControlVar::getDirect(llvm::Function* F){
-    std::set<llvm::Instruction*> result;
-    for(llvm::BasicBlock& B: *F)
-    for(llvm::Instruction& I: B){
-        if (isDirect(&I)) result.insert(&I);
-    }
-    return result;
-}
-
-std::set<llvm::Instruction*> ControlVar::getDirect(llvm::BasicBlock* B){
+std::set<llvm::Instruction*> ControlVar::getInstructions(llvm::BasicBlock* B){
     std::set<llvm::Instruction*> result;
     for(llvm::Instruction& I: *B){
-        if (isDirect(&I)) result.insert(&I);
+        result.insert(&I);
     }
     return result;
 }
 
-std::set<llvm::Instruction*> ControlVar::getDirect(llvm::Loop* L){
+std::set<llvm::Instruction*> ControlVar::getInstructions(llvm::Function* F){
+    std::set<llvm::Instruction*> result;
+    for(llvm::BasicBlock& B: *F){
+        auto instructions = getInstructions(&B);
+        result.insert(instructions.begin(), instructions.end());
+    }
+    return result;
+}
+
+std::set<llvm::Instruction*> ControlVar::getInstructions(llvm::Module* M){
+    std::set<llvm::Instruction*> result;
+    for(llvm::Function& F: *M){
+        auto instructions = getInstructions(&F);
+        result.insert(instructions.begin(), instructions.end());
+    }
+    return result;
+}
+
+std::set<llvm::Instruction*> ControlVar::getInstructions(llvm::Loop* L){
     std::set<llvm::Instruction*> result;
     for(llvm::BasicBlock* B: L->getBlocks()){
-        for(llvm::Instruction* I: getDirect(B)){
-            result.insert(I);
-        }
+        auto instructions = getInstructions(B);
+        result.insert(instructions.begin(), instructions.end());
     }
     return result;
 }
@@ -116,9 +120,8 @@ std::set<llvm::Instruction*> ControlVar::getDepend(llvm::Instruction* I){
 std::set<llvm::Instruction*> ControlVar::getDepend(llvm::BasicBlock* B){
     std::set<llvm::Instruction*> result;
     for(llvm::Instruction& I: *B){
-        for(llvm::Instruction* i: getDepend(&I)){
-            result.insert(i);
-        }
+        auto depend = getDepend(&I);
+        result.insert(depend.begin(), depend.end());
     }
     return result;
 }
@@ -126,9 +129,8 @@ std::set<llvm::Instruction*> ControlVar::getDepend(llvm::BasicBlock* B){
 std::set<llvm::Instruction*> ControlVar::getDepend(llvm::Function* F){
     std::set<llvm::Instruction*> result;
     for(llvm::BasicBlock& B: *F){
-        for(llvm::Instruction* I: getDepend(&B)){
-            result.insert(I);
-        }
+        auto depend = getDepend(&B);
+        result.insert(depend.begin(), depend.end());
     }
     return result;
 }
@@ -136,9 +138,8 @@ std::set<llvm::Instruction*> ControlVar::getDepend(llvm::Function* F){
 std::set<llvm::Instruction*> ControlVar::getDepend(llvm::Module* M){
     std::set<llvm::Instruction*> result;
     for(llvm::Function& F: *M){
-        for(llvm::Instruction* I: getDepend(&F)){
-            result.insert(I);
-        }
+        auto depend = getDepend(&F);
+        result.insert(depend.begin(), depend.end());
     }
     return result;
 }
@@ -211,37 +212,38 @@ std::set<llvm::Instruction*> ControlVar::instDepend(llvm::Instruction* I){
     return result;
 }
 
-llvm::BasicBlock* ControlVar::replaceWithControl(llvm::BasicBlock* B){
-    llvm::BasicBlock* newBlock = llvm::BasicBlock::Create(B->getContext(), "newBlock", B->getParent());
-    auto controlDependent = ControlVar::getDepend(B);
-
-    for(auto& I: *B){
-        if(controlDependent.find(&I) != controlDependent.end()){
-            llvm::Instruction* newInst = I.clone();
-            newInst->insertInto(newBlock, newBlock->end());
-        }
+llvm::Instruction* dummyReturn(llvm::Function* F){
+    llvm::Type* returnType = F->getReturnType();
+    if (returnType->isVoidTy()) {
+        // void type does not accept undef value 
+        return llvm::ReturnInst::Create(F->getContext());
     }
-
-    B->replaceAllUsesWith(newBlock);
-    llvm::BranchInst::Create(B->getUniqueSuccessor(), newBlock);
-    // B->eraseFromParent();
-
-    return newBlock;
+    return llvm::ReturnInst::Create(F->getContext(), llvm::UndefValue::get(returnType));
 }
 
-llvm::BasicBlock* ControlVar::eraseComputation(llvm::BasicBlock* B){
-    auto controlDependent = ControlVar::getDepend(B);
+void ControlVar::erase(llvm::Instruction* I){
+    I->replaceAllUsesWith(llvm::UndefValue::get(I->getType()));
+    I->eraseFromParent();
+}
 
-    std::set<llvm::Instruction*> toErase;
-    for(auto& I: *B){
-        if(controlDependent.find(&I) == controlDependent.end()){
-            I.replaceAllUsesWith(llvm::UndefValue::get(I.getType()));
-            toErase.insert(&I);
+void ControlVar::erase(std::set<llvm::Instruction*> all, std::set<llvm::Instruction*> controlDependent){
+    std::set<llvm::Instruction*> eraseNormal;
+    std::set<llvm::Instruction*> eraseReturn;
+    for(auto* I: all){
+        if(controlDependent.find(I) != controlDependent.end()) continue;
+        if(llvm::ReturnInst* R = llvm::dyn_cast<llvm::ReturnInst>(I)){
+            eraseReturn.insert(R);
+        }
+        else{
+            eraseNormal.insert(I);
         }
     }
-    for(auto* I: toErase){
-        I->eraseFromParent();
+    for(auto* I: eraseNormal){
+        erase(I);
     }
-
-    return B;
+    for(auto* R: eraseReturn){
+        auto newR = dummyReturn(R->getParent()->getParent());
+        newR->insertBefore(R);
+        erase(R);
+    }
 }
