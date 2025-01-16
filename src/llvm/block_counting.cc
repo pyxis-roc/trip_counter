@@ -6,6 +6,7 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/IRBuilder.h"
+#include <vector>
 #include "block_counting.hpp"
 
 
@@ -24,7 +25,7 @@ llvm::Function* getPrint(llvm::Module &M){
 }
 
 // At the end of the module, print the count of each basic block
-llvm::Function* createReport(llvm::Module &M, std::set<std::string> to_print){
+llvm::Function* createReport(llvm::Module &M, std::vector<llvm::GlobalVariable*> counters){
     llvm::FunctionType *printType = llvm::FunctionType::get(
         llvm::Type::getVoidTy(M.getContext()),
         {},
@@ -41,9 +42,8 @@ llvm::Function* createReport(llvm::Module &M, std::set<std::string> to_print){
     llvm::IRBuilder<> builder(entry);
     llvm::Function* printUtil = getPrint(M);
 
-    for(auto name: to_print){
-        llvm::GlobalVariable *bbCounter = M.getGlobalVariable(name);
-        llvm::Value *val = new llvm::LoadInst(llvm::Type::getInt64Ty(M.getContext()), bbCounter, "bb.count", entry);
+    for(auto var: counters){
+        llvm::Value *val = new llvm::LoadInst(llvm::Type::getInt64Ty(M.getContext()), var, "bb.count", entry);
         builder.CreateCall(printUtil, val);
     }
     builder.CreateRetVoid();
@@ -51,9 +51,10 @@ llvm::Function* createReport(llvm::Module &M, std::set<std::string> to_print){
 }
 
 
-std::set<std::string> CountBasicBlocks::insertCounter(llvm::Module &M) {
-    std::set<std::string> counters;
+std::vector<llvm::GlobalVariable*> CountBasicBlocks::insertCounter(llvm::Module &M) {
+    std::vector<llvm::GlobalVariable*> counters;
 
+    // insert individual counters for each basic block
     for(auto & F: M){
         for(auto & B: F){
             //create a global variable for each basic block to store the count
@@ -65,7 +66,7 @@ std::set<std::string> CountBasicBlocks::insertCounter(llvm::Module &M) {
                 llvm::ConstantInt::get(llvm::Type::getInt64Ty(M.getContext()), 0),
                 B.getName() + "_bbCounter"
             );
-            counters.insert(B.getName().str() + "_bbCounter");
+            counters.push_back(bbCounter);
 
             //insert the increment instruction at the end of the basic block
             auto *InsertPos = B.getTerminator(); 
@@ -80,12 +81,17 @@ std::set<std::string> CountBasicBlocks::insertCounter(llvm::Module &M) {
         }
     }
 
+    // create a call to the report function before the return instruction
     llvm::Function* report = createReport(M, counters);
-    
-    //create a call to the report function at the end of the module
-    // llvm::BasicBlock &entry = M.getFunction("main")->getEntryBlock();
-    // llvm::IRBuilder<> builder(&entry, entry.begin());
-    // builder.CreateCall(report);
+    for (auto &F :M){
+        if(F.getName() == report->getName()) continue;
+        for(auto &B: F){
+            if(llvm::ReturnInst* R = llvm::dyn_cast<llvm::ReturnInst>(B.getTerminator())){
+                llvm::IRBuilder<> builder(R);
+                builder.CreateCall(report);
+            }
+        }
+    }
 
     return counters;
 }

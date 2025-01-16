@@ -1,5 +1,4 @@
 #include <cstdlib>
-#include <iostream>
 #include <set>
 #include <unordered_set>
 #include "llvm/IR/BasicBlock.h"
@@ -7,7 +6,6 @@
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/Support/Casting.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/LoopUtils.h"
 #include "control_variable.hpp"
 
@@ -164,50 +162,78 @@ std::set<llvm::Instruction*> ControlVar::extendDepend(std::set<llvm::Instruction
     return result;
 }
 
-std::set<llvm::Instruction*> instTouchImp(llvm::Instruction* I, std::unordered_set<llvm::Instruction*>& visited){
+std::set<llvm::Instruction*> touchImp(llvm::Instruction* I, std::unordered_set<llvm::Instruction*>& visited){
     std::set<llvm::Instruction*> result;
     
     if (visited.find(I) != visited.end()) return result;
     visited.insert(I);
 
     for(auto* U: I->users()){
+        if(llvm::StoreInst* S = llvm::dyn_cast<llvm::StoreInst>(U)){
+            continue;
+        }
         if(llvm::Instruction* i = llvm::dyn_cast<llvm::Instruction>(U)){
+            auto touched = touchImp(i,visited);
             result.insert(i);
-            for(llvm::Instruction* j: instTouchImp(i,visited)){
-                result.insert(j);
-            }
+            result.insert(touched.begin(), touched.end());
         }
     }
     return result;
 }
 
-std::set<llvm::Instruction*> ControlVar::instTouch(llvm::Instruction* I){
+std::set<llvm::Instruction*> touch(llvm::Instruction* I){
     auto visited = std::unordered_set<llvm::Instruction*>();
-    auto result = instTouchImp(I, visited);
+    auto result = touchImp(I, visited);
     result.insert(I);
     return result;
 }
 
-std::set<llvm::Instruction*> instDependImp(llvm::Instruction* I, std::unordered_set<llvm::Instruction*>& visited){
+std::set<llvm::Instruction*> ControlVar::instTouch(llvm::Instruction* I){
+    std::set<llvm::Instruction*> result;
+    auto touched = touch(I);
+    
+    result.insert(touched.begin(), touched.end());
+    result.insert(I);
+    return result;
+}
+
+std::set<llvm::Instruction*> dependImp(llvm::Instruction* I, std::unordered_set<llvm::Instruction*>& visited){
     std::set<llvm::Instruction*> result;
     
     if (visited.find(I) != visited.end()) return result;
     visited.insert(I);
 
+    // %a = add %b, %c; %a depends on %b and %c 
     for(auto& U: I->operands()){
         if(llvm::Instruction* i = llvm::dyn_cast<llvm::Instruction>(U)){
+            auto depend = dependImp(i, visited);
             result.insert(i);
-            for(llvm::Instruction* j: instDependImp(i,visited)){
-                result.insert(j);
-            }
+            result.insert(depend.begin(), depend.end());
+        }
+    }
+
+    // store val, %this; is a dependency of %this 
+    for(auto U: I->users()){
+        if(llvm::StoreInst* S = llvm::dyn_cast<llvm::StoreInst>(U)){
+            result.insert(S);
         }
     }
     return result;
 }
 
-std::set<llvm::Instruction*> ControlVar::instDepend(llvm::Instruction* I){
+std::set<llvm::Instruction*> depend(llvm::Instruction* I){
     auto visited = std::unordered_set<llvm::Instruction*>();
-    auto result = instDependImp(I, visited);
+    auto result = dependImp(I, visited);
+    result.insert(I);
+    return result;
+}
+
+
+std::set<llvm::Instruction*> ControlVar::instDepend(llvm::Instruction* I){
+    std::set<llvm::Instruction*> result;
+    auto dependents = depend(I);
+
+    result.insert(dependents.begin(), dependents.end());
     result.insert(I);
     return result;
 }
