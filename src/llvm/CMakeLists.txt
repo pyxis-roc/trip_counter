@@ -23,5 +23,11 @@ add_executable(
     printer.cc
 )
 
+add_executable(
+    caller
+    caller.cc
+)
+
 target_include_directories(symCount PUBLIC "${PROJECT_SOURCE_DIR}")
 target_link_libraries(symCount LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis)
+target_link_libraries(caller LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis)
