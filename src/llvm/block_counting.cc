@@ -6,9 +6,17 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/IRBuilder.h"
+#include <cassert>
+#include <cstdlib>
+#include <llvm/ADT/StringRef.h>
 #include <llvm/Analysis/ScalarEvolution.h>
 #include <llvm/IR/BasicBlock.h>
+#include <llvm/IR/Constant.h>
+#include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Value.h>
+#include <llvm/Support/Error.h>
+#include <llvm/Support/raw_ostream.h>
+#include <llvm/IR/Type.h>
 #include <map>
 #include "llvm/Transforms/Utils/ScalarEvolutionExpander.h"
 #include "block_counting.hpp"
@@ -16,21 +24,28 @@
 
 
 llvm::Function* getPrint(llvm::Module &M){
+    if (M.getFunction("_Z13print_counteriPci")) return M.getFunction("_Z5printi");
+
     llvm::FunctionType *printType = llvm::FunctionType::get(
         llvm::Type::getVoidTy(M.getContext()),
-        {llvm::Type::getInt64Ty(M.getContext())},
+        {
+            llvm::Type::getInt32Ty(M.getContext()), 
+            llvm::PointerType::getInt8Ty(M.getContext()),
+            llvm::Type::getInt32Ty(M.getContext())},
         false
     );
     return llvm::Function::Create(
         printType,
         llvm::Function::ExternalLinkage,
-        llvm::Twine("_Z5printl"),
+        llvm::Twine("_Z13print_counteriPci"),
         M
     );
 }
 
 // At the end of the module, print the count of each basic block
 llvm::Function* createReport(llvm::Module &M, std::map<llvm::BasicBlock*, llvm::GlobalVariable*> counters){
+    if (M.getFunction("print_bb_count")) return M.getFunction("print_bb_count");
+
     llvm::FunctionType *printType = llvm::FunctionType::get(
         llvm::Type::getVoidTy(M.getContext()),
         {},
@@ -49,8 +64,13 @@ llvm::Function* createReport(llvm::Module &M, std::map<llvm::BasicBlock*, llvm::
 
     for(auto [bb,var]: counters){
         llvm::Value *val = new llvm::LoadInst(llvm::Type::getInt64Ty(M.getContext()), var, "bb.count", entry);
-        builder.CreateCall(printUtil, val);
+        builder.CreateCall(printUtil, 
+            {
+            llvm::ConstantInt::get(llvm::Type::getInt32Ty(M.getContext()), std::hash<llvm::BasicBlock*>{}(bb)),
+            builder.CreateGlobalStringPtr(bb->getName()),
+            val});
     }
+
     builder.CreateRetVoid();
     return printAll;
 }
@@ -83,13 +103,13 @@ void CountBasicBlocks::instrumentBlock(llvm::BasicBlock* B, llvm::Value* increme
         llvm::Type::getInt64Ty(F->getContext()),
         false,
         llvm::GlobalValue::CommonLinkage,
-        llvm::ConstantInt::get(llvm::Type::getInt64Ty(F->getContext()), 0),
+        llvm::ConstantInt::get(llvm::Type::getInt32Ty(F->getContext()), 0),
         B->getName() + "_bbCounter"
     );
 
     //insert the increment instruction at the end of the basic block
     auto *InsertPos = B->getTerminator(); 
-    llvm::Value *OldVal = new llvm::LoadInst(llvm::Type::getInt64Ty(B->getContext()), bbCounter, "old.bb.count", InsertPos);
+    llvm::Value *OldVal = new llvm::LoadInst(llvm::Type::getInt32Ty(B->getContext()), bbCounter, "old.bb.count", InsertPos);
     llvm::Value *NewVal = llvm::BinaryOperator::Create(
                 llvm::Instruction::Add
             , OldVal
@@ -102,7 +122,7 @@ void CountBasicBlocks::instrumentBlock(llvm::BasicBlock* B, llvm::Value* increme
 }
 
 void CountBasicBlocks::instrumentNormalBlock(llvm::BasicBlock* B){
-    instrumentBlock(B, llvm::ConstantInt::get(llvm::Type::getInt64Ty(B->getContext()), 1));
+    instrumentBlock(B, llvm::ConstantInt::get(llvm::Type::getInt32Ty(B->getContext()), 1));
 }
 
 llvm::Value* materializeSCEV(llvm::BasicBlock* B, llvm::ScalarEvolution &SE, const llvm::SCEV* scev){
@@ -114,7 +134,18 @@ llvm::Value* materializeSCEV(llvm::BasicBlock* B, llvm::ScalarEvolution &SE, con
 }
 
 void CountBasicBlocks::instrumentSummarizedBlock(llvm::BasicBlock* B, const llvm::SCEV* backedgeCount, llvm::ScalarEvolution &SE){
-    instrumentBlock(B, materializeSCEV(B, SE, backedgeCount));
+    auto builder = llvm::IRBuilder<>(B->getContext());
+    auto count = materializeSCEV(B, SE, backedgeCount);
+    if (count->getType() == llvm::Type::getInt32Ty(B->getContext())){
+        instrumentBlock(B, count);
+    }
+    else if (count->getType() == llvm::Type::getInt64Ty(B->getContext())){
+        auto trunc = new llvm::TruncInst(count, llvm::Type::getInt32Ty(B->getContext()), "trunc", B->getTerminator());
+        instrumentBlock(B, trunc);
+    }
+    else{
+        assert(false && "unsupported backedge count type, only support 32-bit and 64-bit integer");
+    }
 }
 
 void rec(LoopSummary* LS, std::map<llvm::BasicBlock*, const llvm::SCEV*> &symCounts){

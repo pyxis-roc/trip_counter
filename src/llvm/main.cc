@@ -2,11 +2,14 @@
 #include <llvm/Analysis/ScalarEvolution.h>
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/IR/Dominators.h>
+#include <llvm/IR/Function.h>
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/IR/Module.h>
 #include <iostream>
 #include <llvm/Support/raw_ostream.h>
+#include <memory>
+#include <vector>
 #include "loop_summary.hpp"
 #include "block_counting.hpp"
 #include "printer.hpp"
@@ -39,21 +42,32 @@ void analyzeLoop(Module &M) {
     FPM.addPass(LoopSimplifyPass());
     // FPM.addPass(ScalarEvolutionPrinterPass(llvm::errs()));
 
-    
+    // record all current functions, avoid newly created helper functions
+    std::vector<Function*> functions;
     for (Function& F: M) {
-        if (F.isDeclaration()) continue;
+        functions.push_back(&F);
+    }
 
-        FPM.run(F, FAM);
-        LoopInfo &LI = FAM.getResult<LoopAnalysis>(F);
-        ScalarEvolution &SE = FAM.getResult<ScalarEvolutionAnalysis>(F);
+    for (auto F: functions) {
+        if (F->isDeclaration()) continue;
+        if (F->getName() == "main") continue;
+
+        FPM.run(*F, FAM);
+        LoopInfo &LI = FAM.getResult<LoopAnalysis>(*F);
+        ScalarEvolution &SE = FAM.getResult<ScalarEvolutionAnalysis>(*F);
         
-        ControlVar::eraseComputation(&F);
+        ControlVar::eraseComputation(F);
         std::set<LoopSummary*> summaries;
         for (Loop *L : LI) {
-            auto LS = LoopSummary(M, *L, SE);
-            summaries.insert(&LS);
+            auto LS = new LoopSummary(M, *L, SE);
+            if(auto l = LS->trySummarize()){
+                summaries.insert(LS);
+            }
+            else{
+                delete LS;
+            }
         }
-        CountBasicBlocks().buildProxy(F, summaries);
+        CountBasicBlocks().buildProxy(*F, summaries);
     }
     
     M.print(errs(), nullptr);

@@ -1,4 +1,5 @@
 #include <cstdlib>
+#include <llvm/Analysis/LoopInfo.h>
 #include <set>
 #include <unordered_set>
 #include "llvm/IR/BasicBlock.h"
@@ -137,6 +138,15 @@ std::set<llvm::Instruction*> ControlVar::getDepend(llvm::Module* M){
     std::set<llvm::Instruction*> result;
     for(llvm::Function& F: *M){
         auto depend = getDepend(&F);
+        result.insert(depend.begin(), depend.end());
+    }
+    return result;
+}
+
+std::set<llvm::Instruction*> ControlVar::getDepend(llvm::Loop* L){
+    std::set<llvm::Instruction*> result;
+    for(llvm::BasicBlock* B: L->getBlocks()){
+        auto depend = getDepend(B);
         result.insert(depend.begin(), depend.end());
     }
     return result;

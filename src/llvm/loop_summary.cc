@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cassert>
 #include <cstdlib>
 #include <iterator>
 #include <llvm/Analysis/ScalarEvolution.h>
@@ -86,18 +87,8 @@ void LoopSummary::showAll(){
 }
 
 bool LoopSummary::isAffine(){
-    auto i = L.getInductionVariable(SE);
-    if(i == nullptr) return false;
-    
-    auto expr = llvm::cast<llvm::SCEVAddRecExpr>(SE.getSCEV(i));
-    if (expr == nullptr) return false;
-    auto start = expr->getStart();
-    auto step = expr->getStepRecurrence(SE);
-    auto bcount = SE.getBackedgeTakenCount(&L);
-    if (bcount == nullptr) return false;
-    auto end = SE.getAddExpr(start, SE.getMulExpr(bcount, step));
-
-    return start != nullptr && step != nullptr && end != nullptr;
+    auto backedgeCount = SE.getBackedgeTakenCount(&L);
+    return backedgeCount != nullptr; 
 }
 
 // a loop is summarizable if 
@@ -110,10 +101,13 @@ bool LoopSummary::isSummarizable(){
     if(isAffectOutside()) return false;
     if(!isOutsideDetermined()) return false;
 
-    llvm::SmallVector<llvm::BasicBlock*> latches;
-    L.getLoopLatches(latches);
-    if(latches.size() != 1) return false;
+    // have only one latch
+    if(L.getLoopLatch() == nullptr) return false;
 
+    // have only one exit
+    if (L.getUniqueExitBlock() == nullptr) return false;
+
+    // all sub loops are summarizable
     for(auto& subLoop: L.getSubLoops()){
         LoopSummary LS(M, *subLoop, SE);
         if(!LS.isSummarizable()) return false;
@@ -124,21 +118,24 @@ bool LoopSummary::isSummarizable(){
 llvm::Loop* LoopSummary::trySummarize(){
     if(!isSummarizable()) return nullptr;
     
-    for(auto& subLoop: L.getSubLoops()){
-        LoopSummary LS(M, *subLoop, SE);
-        LS.trySummarize();
+    for(auto &c: child){
+        c->trySummarize();
     }
 
-    // remove backedge from the single latch, create a acyclic control 
-    llvm::BasicBlock* latch = L.getLoopLatch();
-    llvm::BasicBlock* exit = L.getExitBlock();
+    auto header = L.getHeader();
+    auto exit = L.getExitBlock();
+    auto latch = L.getLoopLatch();
+
+    // remove backedge from latches, create a acyclic control 
     llvm::BranchInst::Create(exit, latch->getTerminator());
     latch->getTerminator()->eraseFromParent();
 
-    // remove computation in the loop
-    for(auto* B: L.getBlocks()){
-        ControlVar::eraseComputation(B);
-    }
+    // remove invalid phi nodes caused by the removed backedge
+    for(auto& I: *header){
+        if(llvm::PHINode* phi = llvm::dyn_cast<llvm::PHINode>(&I)){
+            phi->removeIncomingValue(latch);
+        }
+    }    
 
     return &L;
 }

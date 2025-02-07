@@ -7,6 +7,7 @@
 #include <llvm/Analysis/ScalarEvolution.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Function.h>
+#include <llvm/IR/Type.h>
 #include <map>
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/Analysis/LoopInfo.h"
@@ -25,9 +26,15 @@ class CountBasicBlocks{
     private:
 
     bool isSummarizedBlock(llvm::BasicBlock* B, std::set<llvm::Loop*> SL);
+    
+    // check if a basic block is already instrumented with some counter
     bool isInstrumented(llvm::BasicBlock* B);
+
+    // insert a counter for a basic block
     void instrumentBlock(llvm::BasicBlock* B, llvm::Value* increment = nullptr);
     void instrumentNormalBlock(llvm::BasicBlock* B);
     void instrumentSummarizedBlock(llvm::BasicBlock* B, const llvm::SCEV* , llvm::ScalarEvolution &SE);
+
+    // insert counters that increase by the backedge count of the loop
     void instrumentSummarizedLoop(LoopSummary* LS);
 };
