@@ -55,27 +55,27 @@ void get_matmul_caller(int m, int n, int k){
     // prepare arguments
     GlobalVariable *A = new GlobalVariable(
         module, 
-        ArrayType::get(Type::getInt32Ty(context), 102400), 
+        ArrayType::get(Type::getInt32Ty(context), 16646400), 
         false,
         GlobalValue::PrivateLinkage, 
         ConstantAggregateZero::get(
-            ArrayType::get(Type::getInt32Ty(context), 102400)), "A");
+            ArrayType::get(Type::getInt32Ty(context), 16646400)), "A");
     
     GlobalVariable *B = new GlobalVariable(
         module, 
-        ArrayType::get(Type::getInt32Ty(context), 102400), 
+        ArrayType::get(Type::getInt32Ty(context), 16646400), 
         false,
         GlobalValue::PrivateLinkage, 
         ConstantAggregateZero::get(
-            ArrayType::get(Type::getInt32Ty(context), 102400)), "B");
+            ArrayType::get(Type::getInt32Ty(context), 16646400)), "B");
 
     GlobalVariable *T = new GlobalVariable(
         module, 
-        ArrayType::get(Type::getInt32Ty(context), 102400), 
+        ArrayType::get(Type::getInt32Ty(context), 16646400), 
         false,
         GlobalValue::PrivateLinkage, 
         ConstantAggregateZero::get(
-            ArrayType::get(Type::getInt32Ty(context), 102400)), "C");
+            ArrayType::get(Type::getInt32Ty(context), 16646400)), "C");
 
     auto *M = builder.getInt32(m); // Example: M = 128
     auto *N = builder.getInt32(n); // Example: N = 256

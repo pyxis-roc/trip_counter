@@ -3,13 +3,31 @@
 
 #pragma once
 
-#include <vector>
+#include "loop_summary.hpp"
+#include <llvm/Analysis/ScalarEvolution.h>
+#include <llvm/IR/BasicBlock.h>
+#include <llvm/IR/Function.h>
+#include <map>
 #include "llvm/IR/GlobalVariable.h"
-#include "llvm/IR/Module.h"
+#include "llvm/Analysis/LoopInfo.h"
 
 class CountBasicBlocks{
+    // map from basic block to counter variable 
+    std::map<llvm::BasicBlock*, llvm::GlobalVariable*> counters;
+    
     public:    
     // for each basic block in the module, insert a counter
     // at the end of the module, print the count of each basic block
-    static std::vector<llvm::GlobalVariable*> insertCounter(llvm::Module &M);
+
+    // static std::vector<llvm::GlobalVariable*> insertCounter(llvm::Module &M);
+    void buildProxy(llvm::Function &F, std::set<LoopSummary*> SL);
+
+    private:
+
+    bool isSummarizedBlock(llvm::BasicBlock* B, std::set<llvm::Loop*> SL);
+    bool isInstrumented(llvm::BasicBlock* B);
+    void instrumentBlock(llvm::BasicBlock* B, llvm::Value* increment = nullptr);
+    void instrumentNormalBlock(llvm::BasicBlock* B);
+    void instrumentSummarizedBlock(llvm::BasicBlock* B, const llvm::SCEV* , llvm::ScalarEvolution &SE);
+    void instrumentSummarizedLoop(LoopSummary* LS);
 };

@@ -18,8 +18,15 @@ class LoopSummary {
         llvm::Module &M;
         llvm::Loop &L;
         llvm::ScalarEvolution &SE;
+        std::set<LoopSummary *>child;
+        const llvm::SCEV* backedgeCount;
 
-        LoopSummary(llvm::Module& M, llvm::Loop &L, llvm::ScalarEvolution &SE): M(M), L(L), SE(SE) {};
+        LoopSummary(llvm::Module& M, llvm::Loop &L, llvm::ScalarEvolution &SE): M(M), L(L), SE(SE){
+            backedgeCount = SE.getBackedgeTakenCount(&L);
+            for(auto& subLoop: L.getSubLoops()){
+                child.insert(new LoopSummary(M, *subLoop, SE));
+            }
+        };
         ~LoopSummary(){};
 
         // Check if the loop affects any outside control variable 
@@ -49,6 +56,8 @@ class LoopSummary {
         // check if a set of instructions are all determined by outside
         bool isOutsideDetermined(std::set<llvm::Instruction*>);
         bool isOutsideDetermined(llvm::Instruction*);
+
+        bool isAffine();
 
         // filter out instructions that are determined by outside
         std::set<llvm::Instruction*> filterOutsideDetermined(std::set<llvm::Instruction*>);

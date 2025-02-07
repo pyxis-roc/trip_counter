@@ -1,3 +1,7 @@
+#include <llvm/Analysis/AssumptionCache.h>
+#include <llvm/Analysis/ScalarEvolution.h>
+#include <llvm/Analysis/LoopInfo.h>
+#include <llvm/IR/Dominators.h>
 #include <llvm/IRReader/IRReader.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/IR/Module.h>
@@ -7,6 +11,9 @@
 #include "block_counting.hpp"
 #include "printer.hpp"
 #include "control_variable.hpp"
+#include "llvm/Analysis/LoopInfo.h"
+#include "llvm/Transforms/Utils/Mem2Reg.h"
+
                                      
 using namespace llvm;
 
@@ -25,9 +32,14 @@ void analyzeLoop(Module &M) {
     PB.registerFunctionAnalyses(FAM);
     PB.registerLoopAnalyses(LAM);
 
-    FPM.addPass(LoopSimplifyPass());
-    FPM.addPass(ScalarEvolutionVerifierPass());
+    FAM.registerPass([&] { return ScalarEvolutionAnalysis(); });
+    FAM.registerPass([&] { return LoopAnalysis(); });
 
+    FPM.addPass(PromotePass());
+    FPM.addPass(LoopSimplifyPass());
+    // FPM.addPass(ScalarEvolutionPrinterPass(llvm::errs()));
+
+    
     for (Function& F: M) {
         if (F.isDeclaration()) continue;
 
@@ -36,13 +48,13 @@ void analyzeLoop(Module &M) {
         ScalarEvolution &SE = FAM.getResult<ScalarEvolutionAnalysis>(F);
         
         ControlVar::eraseComputation(&F);
+        std::set<LoopSummary*> summaries;
         for (Loop *L : LI) {
-            LoopSummary LS(M, *L, SE);
-            LS.trySummarize();
-            // if(LS.isSummarizable()) Debug::printLoopInfo(*L, SE);
+            auto LS = LoopSummary(M, *L, SE);
+            summaries.insert(&LS);
         }
+        CountBasicBlocks().buildProxy(F, summaries);
     }
-    // CountBasicBlocks::insertCounter(M);
     
     M.print(errs(), nullptr);
 }

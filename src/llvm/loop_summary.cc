@@ -1,10 +1,13 @@
 #include <algorithm>
 #include <cstdlib>
 #include <iterator>
+#include <llvm/Analysis/ScalarEvolution.h>
+#include <llvm/IR/Function.h>
 #include <set>
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/IR/BasicBlock.h"
+#include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/Support/raw_ostream.h"
 #include "loop_summary.hpp"
@@ -82,12 +85,28 @@ void LoopSummary::showAll(){
     }
 }
 
+bool LoopSummary::isAffine(){
+    auto i = L.getInductionVariable(SE);
+    if(i == nullptr) return false;
+    
+    auto expr = llvm::cast<llvm::SCEVAddRecExpr>(SE.getSCEV(i));
+    if (expr == nullptr) return false;
+    auto start = expr->getStart();
+    auto step = expr->getStepRecurrence(SE);
+    auto bcount = SE.getBackedgeTakenCount(&L);
+    if (bcount == nullptr) return false;
+    auto end = SE.getAddExpr(start, SE.getMulExpr(bcount, step));
+
+    return start != nullptr && step != nullptr && end != nullptr;
+}
+
 // a loop is summarizable if 
 // 1. no outside control variable is affected 
 // 2. the control inside the loop is determined by outside
 // 3. there is only one latch
 // 4. all sub loops are summarizable
 bool LoopSummary::isSummarizable(){
+    if(!isAffine()) return false;
     if(isAffectOutside()) return false;
     if(!isOutsideDetermined()) return false;
 
