@@ -18,13 +18,16 @@
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/IR/Type.h>
 #include <map>
+#include "llvm/IR/Operator.h"
 #include "llvm/Transforms/Utils/ScalarEvolutionExpander.h"
 #include "block_counting.hpp"
 #include "loop_summary.hpp"
 
 
 llvm::Function* getPrint(llvm::Module &M){
-    if (M.getFunction("_Z13print_counteriPci")) return M.getFunction("_Z5printi");
+    if (auto f = M.getFunction("_Z13print_counteriPci")) {
+        return f;
+    }
 
     llvm::FunctionType *printType = llvm::FunctionType::get(
         llvm::Type::getVoidTy(M.getContext()),
@@ -43,30 +46,33 @@ llvm::Function* getPrint(llvm::Module &M){
 }
 
 // At the end of the module, print the count of each basic block
-llvm::Function* createReport(llvm::Module &M, std::map<llvm::BasicBlock*, llvm::GlobalVariable*> counters){
-    if (M.getFunction("print_bb_count")) return M.getFunction("print_bb_count");
+llvm::Function* createReport(llvm::Function& F, std::map<llvm::BasicBlock*, llvm::GlobalVariable*> counters){
+    auto reportFuncName = (F.getName() + "_print_bb_count").str();
+    if (auto f = F.getParent()->getFunction(reportFuncName)) {
+        return f;
+    }
 
     llvm::FunctionType *printType = llvm::FunctionType::get(
-        llvm::Type::getVoidTy(M.getContext()),
+        llvm::Type::getVoidTy(F.getContext()),
         {},
         false
     );
     llvm::Function *printAll = llvm::Function::Create(
         printType,
         llvm::Function::ExternalLinkage,
-        llvm::Twine("print_bb_count"),
-        M
+        llvm::Twine(reportFuncName),
+        F.getParent()
     );
 
-    llvm::BasicBlock *entry = llvm::BasicBlock::Create(M.getContext(), "entry", printAll);
+    llvm::BasicBlock *entry = llvm::BasicBlock::Create(F.getContext(), "entry", printAll);
     llvm::IRBuilder<> builder(entry);
-    llvm::Function* printUtil = getPrint(M);
+    llvm::Function* printUtil = getPrint(*F.getParent());
 
     for(auto [bb,var]: counters){
-        llvm::Value *val = new llvm::LoadInst(llvm::Type::getInt64Ty(M.getContext()), var, "bb.count", entry);
+        llvm::Value *val = new llvm::LoadInst(llvm::Type::getInt64Ty(F.getContext()), var, "bb.count", entry);
         builder.CreateCall(printUtil, 
             {
-            llvm::ConstantInt::get(llvm::Type::getInt32Ty(M.getContext()), std::hash<llvm::BasicBlock*>{}(bb)),
+            llvm::ConstantInt::get(llvm::Type::getInt32Ty(F.getContext()), std::hash<llvm::BasicBlock*>{}(bb)),
             builder.CreateGlobalStringPtr(bb->getName()),
             val});
     }
@@ -86,7 +92,7 @@ void CountBasicBlocks::buildProxy(llvm::Function &F, std::set<LoopSummary*> SL) 
     }
 
     // create a call to the report function before the return instruction
-    llvm::Function* report = createReport(*F.getParent(), counters);
+    llvm::Function* report = createReport(F, counters);
     for(auto &B: F){
         if(llvm::ReturnInst* R = llvm::dyn_cast<llvm::ReturnInst>(B.getTerminator())){
             llvm::IRBuilder<> builder(R);
@@ -108,7 +114,7 @@ void CountBasicBlocks::instrumentBlock(llvm::BasicBlock* B, llvm::Value* increme
     );
 
     //insert the increment instruction at the end of the basic block
-    auto *InsertPos = B->getTerminator(); 
+    auto InsertPos = B->getTerminator(); 
     llvm::Value *OldVal = new llvm::LoadInst(llvm::Type::getInt32Ty(B->getContext()), bbCounter, "old.bb.count", InsertPos);
     llvm::Value *NewVal = llvm::BinaryOperator::Create(
                 llvm::Instruction::Add
@@ -135,7 +141,14 @@ llvm::Value* materializeSCEV(llvm::BasicBlock* B, llvm::ScalarEvolution &SE, con
 
 void CountBasicBlocks::instrumentSummarizedBlock(llvm::BasicBlock* B, const llvm::SCEV* backedgeCount, llvm::ScalarEvolution &SE){
     auto builder = llvm::IRBuilder<>(B->getContext());
-    auto count = materializeSCEV(B, SE, backedgeCount);
+    auto bcount = materializeSCEV(B, SE, backedgeCount);
+    auto count = llvm::BinaryOperator::Create(
+            llvm::Instruction::Add,
+            bcount,
+            llvm::ConstantInt::get(bcount->getType(), 1),
+            "count",
+            B->getTerminator());
+            
     if (count->getType() == llvm::Type::getInt32Ty(B->getContext())){
         instrumentBlock(B, count);
     }
