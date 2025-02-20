@@ -18,7 +18,6 @@
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/IR/Type.h>
 #include <map>
-#include "llvm/IR/Operator.h"
 #include "llvm/Transforms/Utils/ScalarEvolutionExpander.h"
 #include "block_counting.hpp"
 #include "loop_summary.hpp"
@@ -142,18 +141,12 @@ llvm::Value* materializeSCEV(llvm::BasicBlock* B, llvm::ScalarEvolution &SE, con
 void CountBasicBlocks::instrumentSummarizedBlock(llvm::BasicBlock* B, const llvm::SCEV* backedgeCount, llvm::ScalarEvolution &SE){
     auto builder = llvm::IRBuilder<>(B->getContext());
     auto bcount = materializeSCEV(B, SE, backedgeCount);
-    auto count = llvm::BinaryOperator::Create(
-            llvm::Instruction::Add,
-            bcount,
-            llvm::ConstantInt::get(bcount->getType(), 1),
-            "count",
-            B->getTerminator());
             
-    if (count->getType() == llvm::Type::getInt32Ty(B->getContext())){
-        instrumentBlock(B, count);
+    if (bcount->getType() == llvm::Type::getInt32Ty(B->getContext())){
+        instrumentBlock(B, bcount);
     }
-    else if (count->getType() == llvm::Type::getInt64Ty(B->getContext())){
-        auto trunc = new llvm::TruncInst(count, llvm::Type::getInt32Ty(B->getContext()), "trunc", B->getTerminator());
+    else if (bcount->getType() == llvm::Type::getInt64Ty(B->getContext())){
+        auto trunc = new llvm::TruncInst(bcount, llvm::Type::getInt32Ty(B->getContext()), "trunc", B->getTerminator());
         instrumentBlock(B, trunc);
     }
     else{
@@ -161,24 +154,34 @@ void CountBasicBlocks::instrumentSummarizedBlock(llvm::BasicBlock* B, const llvm
     }
 }
 
-void rec(LoopSummary* LS, std::map<llvm::BasicBlock*, const llvm::SCEV*> &symCounts){
+void populateSymCounts(LoopSummary* LS, std::map<llvm::BasicBlock*, const llvm::SCEV*> &symCounts){
+
     for(auto B: LS->L.getBlocks()){
-        if(symCounts.find(B) == symCounts.end()){
-            symCounts[B] = LS->backedgeCount;
+        if (B == LS->L.getHeader()){
+            // loop header will be executed one more time than the loop body
+            auto backPlusOne = LS->SE.getAddExpr(LS->backedgeCount, LS->SE.getOne(LS->backedgeCount->getType()));
+            symCounts[B] = LS->SE.getMulExpr(symCounts[B], backPlusOne);
         }
         else{
             symCounts[B] = LS->SE.getMulExpr(symCounts[B], LS->backedgeCount);
         }
     }
     for(auto c: LS->child){
-        rec(c, symCounts);
+        populateSymCounts(c, symCounts);
     }
 }
 
-void CountBasicBlocks::instrumentSummarizedLoop(LoopSummary* LS){
+std::map<llvm::BasicBlock*, const llvm::SCEV*> getSymCounts(LoopSummary* LS){
     std::map<llvm::BasicBlock*, const llvm::SCEV*> symCounts;
-    rec(LS, symCounts);
-    
+    for (auto B: LS->L.getBlocks()){
+        symCounts[B] = LS->SE.getOne(LS->backedgeCount->getType());
+    }
+    populateSymCounts(LS, symCounts);
+    return symCounts;
+}
+
+void CountBasicBlocks::instrumentSummarizedLoop(LoopSummary* LS){
+    auto symCounts = getSymCounts(LS);
     for(auto [B, count]: symCounts){
         instrumentSummarizedBlock(B, count, LS->SE);
     }
