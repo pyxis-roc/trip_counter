@@ -157,14 +157,8 @@ void CountBasicBlocks::instrumentSummarizedBlock(llvm::BasicBlock* B, const llvm
 void populateSymCounts(LoopSummary* LS, std::map<llvm::BasicBlock*, const llvm::SCEV*> &symCounts){
 
     for(auto B: LS->L.getBlocks()){
-        if (B == LS->L.getHeader()){
-            // loop header will be executed one more time than the loop body
-            auto backPlusOne = LS->SE.getAddExpr(LS->backedgeCount, LS->SE.getOne(LS->backedgeCount->getType()));
-            symCounts[B] = LS->SE.getMulExpr(symCounts[B], backPlusOne);
-        }
-        else{
-            symCounts[B] = LS->SE.getMulExpr(symCounts[B], LS->backedgeCount);
-        }
+        auto backPlusOne = LS->SE.getAddExpr(LS->backedgeCount, LS->SE.getOne(LS->backedgeCount->getType()));
+        symCounts[B] = LS->SE.getMulExpr(symCounts[B], backPlusOne);
     }
     for(auto c: LS->child){
         populateSymCounts(c, symCounts);
