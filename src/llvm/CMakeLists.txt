@@ -5,6 +5,7 @@ project(symCount VERSION 1.0)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_CXX_COMPILER clang++)
+add_compile_options(-fno-rtti)
 
 find_package(LLVM REQUIRED CONFIG)
 execute_process(
@@ -28,6 +29,7 @@ add_executable(
     caller.cc
 )
 
+target_compile_definitions(symCount PRIVATE IR_PLUGIN_PATH="${PROJECT_SOURCE_DIR}/IR_plugin")
 target_include_directories(symCount PUBLIC "${PROJECT_SOURCE_DIR}")
 target_link_libraries(symCount LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis)
 target_link_libraries(caller LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis)

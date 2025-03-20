@@ -24,6 +24,9 @@ class CountBasicBlocks{
     void buildProxy(llvm::Function &F, std::set<LoopSummary*> SL);
 
     private:
+    // From IR_plugin/print.ll import the external print_counter function
+    // into the current module
+    llvm::Function* getPrint(llvm::Module &M);
 
     bool isSummarizedBlock(llvm::BasicBlock* B, std::set<llvm::Loop*> SL);
     

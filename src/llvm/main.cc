@@ -16,11 +16,13 @@
 #include "control_variable.hpp"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Transforms/Utils/Mem2Reg.h"
+#include "llvm/IR/LegacyPassManager.h"
+#include "llvm/IR/Module.h"
 
                                      
 using namespace llvm;
 
-void analyzeLoop(Module &M) {
+void analyzeLoop(Module &M, std::string targetFunctionName = "main") {
     LLVMContext &Context = M.getContext();
 
     // Initialize pass managers
@@ -34,7 +36,7 @@ void analyzeLoop(Module &M) {
 
     PB.registerFunctionAnalyses(FAM);
     PB.registerLoopAnalyses(LAM);
-
+    
     FAM.registerPass([&] { return ScalarEvolutionAnalysis(); });
     FAM.registerPass([&] { return LoopAnalysis(); });
 
@@ -50,7 +52,7 @@ void analyzeLoop(Module &M) {
 
     for (auto F: functions) {
         if (F->isDeclaration()) continue;
-        if (F->getName() == "main") continue;
+        if (F->getName() != targetFunctionName) continue;
 
         FPM.run(*F, FAM);
         LoopInfo &LI = FAM.getResult<LoopAnalysis>(*F);
@@ -69,14 +71,13 @@ void analyzeLoop(Module &M) {
         }
         CountBasicBlocks().buildProxy(*F, summaries);
     }
-    
     M.print(errs(), nullptr);
 }
 
 
 int main (int argc, char** argv){
-    if(argc < 2){
-        std::cerr << "Usage: " << argv[0] << " <LLVM IR file>\n";
+    if(argc < 3){
+        std::cerr << "Usage: " << argv[0] << " <LLVM IR file> <target function name>\n";
         return 1;
     }
 
@@ -90,7 +91,7 @@ int main (int argc, char** argv){
         return 1;
     }
 
-    analyzeLoop(*M);
+    analyzeLoop(*M, argv[2]);
     
     return 0;
 }
