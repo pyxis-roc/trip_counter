@@ -157,21 +157,36 @@ void CountBasicBlocks::instrumentSummarizedBlock(llvm::BasicBlock* B, const llvm
     if (bcount->getType() == llvm::Type::getInt64Ty(B->getContext())){
         instrumentBlock(B, bcount);
     }
-    // else if (bcount->getType() == llvm::Type::getInt32Ty(B->getContext())){
-    //     auto trunc = new llvm::TruncInst(bcount, llvm::Type::getInt32Ty(B->getContext()), "trunc", B->getTerminator());
-    //     instrumentBlock(B, trunc);
-    // }
+    else if (bcount->getType() == llvm::Type::getInt32Ty(B->getContext())){
+        auto sext = new llvm::SExtInst(bcount, llvm::Type::getInt64Ty(B->getContext()), "sext", B->getTerminator());
+        instrumentBlock(B, sext);
+    }
     else{
-        assert(false && "unsupported backedge count type, only support 64-bit integer");
+        assert(false && "unsupported backedge count type, only support 64-bit or 32-bit integer");
     }
 }
 
 void populateSymCounts(LoopSummary* LS, std::map<llvm::BasicBlock*, const llvm::SCEV*> &symCounts){
+    auto back = LS->backedgeCount;
+    auto backPlusOne = LS->SE.getAddExpr(LS->backedgeCount, LS->SE.getOne(LS->backedgeCount->getType()));
 
-    for(auto B: LS->L.getBlocks()){
-        auto backPlusOne = LS->SE.getAddExpr(LS->backedgeCount, LS->SE.getOne(LS->backedgeCount->getType()));
-        symCounts[B] = LS->SE.getMulExpr(symCounts[B], backPlusOne);
+    if (LS->isHeaderExiting()){
+        // header exiting, header count = backedge count + 1, body count = backedge count
+        auto header = LS->L.getHeader();
+        symCounts[header] = LS->SE.getMulExpr(symCounts[header], backPlusOne);
+        
+        for(auto B: LS->L.getBlocks()){
+            if (B == header) continue;
+            symCounts[B] = LS->SE.getMulExpr(symCounts[B], back);
+        }
     }
+    else{
+        // tail existing, both header and body count = backedge count + 1
+        for(auto B: LS->L.getBlocks()){
+            symCounts[B] = LS->SE.getMulExpr(symCounts[B], backPlusOne);
+        }
+    }
+
     for(auto c: LS->child){
         populateSymCounts(c, symCounts);
     }
@@ -179,6 +194,7 @@ void populateSymCounts(LoopSummary* LS, std::map<llvm::BasicBlock*, const llvm::
 
 std::map<llvm::BasicBlock*, const llvm::SCEV*> getSymCounts(LoopSummary* LS){
     std::map<llvm::BasicBlock*, const llvm::SCEV*> symCounts;
+    
     for (auto B: LS->L.getBlocks()){
         symCounts[B] = LS->SE.getOne(LS->backedgeCount->getType());
     }

@@ -51,6 +51,9 @@ class LoopSummary {
         // only works for loops that have a single latch
         llvm::Loop* trySummarize();
 
+        // Check if the loop is exiting by header
+        bool isHeaderExiting();
+        bool isTailExiting();
 
     private:
         // check if a set of instructions are all determined by outside

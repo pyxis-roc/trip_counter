@@ -139,3 +139,11 @@ llvm::Loop* LoopSummary::trySummarize(){
 
     return &L;
 }
+
+bool LoopSummary::isHeaderExiting(){
+    return L.isLoopExiting(L.getHeader());
+}
+
+bool LoopSummary::isTailExiting(){
+    return L.isLoopExiting(L.getLoopLatch());
+}
