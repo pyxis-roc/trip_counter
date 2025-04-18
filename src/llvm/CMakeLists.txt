@@ -22,14 +22,16 @@ add_executable(
     control_variable.cc 
     loop_summary.cc
     printer.cc
+    utils.cc
 )
 
 add_executable(
-    caller
-    caller.cc
+    instr-count
+    instr_count.cc
+    utils.cc
 )
 
 target_compile_definitions(symCount PRIVATE IR_PLUGIN_PATH="${PROJECT_SOURCE_DIR}/IR_plugin")
 target_include_directories(symCount PUBLIC "${PROJECT_SOURCE_DIR}")
 target_link_libraries(symCount LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis)
-target_link_libraries(caller LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis)
+target_link_libraries(instr-count LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis)
