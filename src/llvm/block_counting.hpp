@@ -8,13 +8,11 @@
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Type.h>
-#include <map>
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/Analysis/LoopInfo.h"
+#include <map>
 
 class CountBasicBlocks{
-    // map from basic block to counter variable 
-    std::map<llvm::BasicBlock*, llvm::GlobalVariable*> counters;
     
     public:    
     // for each basic block in the module, insert a counter
@@ -29,15 +27,12 @@ class CountBasicBlocks{
     llvm::Function* getPrint(llvm::Module &M);
 
     bool isSummarizedBlock(llvm::BasicBlock* B, std::set<llvm::Loop*> SL);
-    
-    // check if a basic block is already instrumented with some counter
-    bool isInstrumented(llvm::BasicBlock* B);
 
     // insert a counter for a basic block
-    void instrumentBlock(llvm::BasicBlock* B, llvm::Value* increment = nullptr);
-    void instrumentNormalBlock(llvm::BasicBlock* B);
-    void instrumentSummarizedBlock(llvm::BasicBlock* B, const llvm::SCEV* , llvm::ScalarEvolution &SE);
+    void instrumentBlock(llvm::BasicBlock* B, llvm::GlobalVariable*, llvm::Value* increment = nullptr);
+    void instrumentNormalBlock(llvm::BasicBlock* B, llvm::GlobalVariable*);
+    void instrumentSummarizedBlock(llvm::BasicBlock* B, llvm::GlobalVariable*, const llvm::SCEV* , llvm::ScalarEvolution &SE);
 
     // insert counters that increase by the backedge count of the loop
-    void instrumentSummarizedLoop(LoopSummary* LS);
+    void instrumentSummarizedLoop(LoopSummary* LS, std::map<llvm::BasicBlock*, llvm::GlobalVariable*> counters);
 };

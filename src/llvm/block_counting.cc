@@ -24,8 +24,10 @@
 #include <map>
 #include <cassert>
 #include <cstdlib>
+#include <string>
 #include "block_counting.hpp"
 #include "loop_summary.hpp"
+#include "utils.hpp"
 
 // From IR_plugin/print.ll import the external print_counter function
 // into the current module
@@ -57,7 +59,7 @@ llvm::Function* getPrint(llvm::Module &M){
 }
 
 // At the end of the module, print the count of each basic block
-llvm::Function* createReport(llvm::Function& F, std::map<llvm::BasicBlock*, llvm::GlobalVariable*> counters){
+llvm::Function* createReport(llvm::Function& F, std::map<llvm::BasicBlock*, llvm::GlobalVariable*> counters, std::map<llvm::BasicBlock*, std::string> bbIDs){
     auto reportFuncName = (F.getName() + "_print_bb_count").str();
     if (auto f = F.getParent()->getFunction(reportFuncName)) {
         return f;
@@ -83,7 +85,7 @@ llvm::Function* createReport(llvm::Function& F, std::map<llvm::BasicBlock*, llvm
         llvm::Value *val = new llvm::LoadInst(llvm::Type::getInt64Ty(F.getContext()), var, "bb.count", entry);
         builder.CreateCall(printUtil, 
             {
-            llvm::ConstantInt::get(llvm::Type::getInt32Ty(F.getContext()), std::hash<llvm::BasicBlock*>{}(bb)),
+            builder.CreateGlobalStringPtr(bbIDs[bb]),
             builder.CreateGlobalStringPtr(bb->getName()),
             val});
     }
@@ -92,27 +94,7 @@ llvm::Function* createReport(llvm::Function& F, std::map<llvm::BasicBlock*, llvm
     return printAll;
 }
 
-void CountBasicBlocks::buildProxy(llvm::Function &F, std::set<LoopSummary*> SL) {
-    for (auto summary: SL){
-        instrumentSummarizedLoop(summary);
-    }
-
-    for(auto &B: F){
-        if(isInstrumented(&B)) continue;
-        instrumentNormalBlock(&B);
-    }
-
-    // create a call to the report function before the return instruction
-    llvm::Function* report = createReport(F, counters);
-    for(auto &B: F){
-        if(llvm::ReturnInst* R = llvm::dyn_cast<llvm::ReturnInst>(B.getTerminator())){
-            llvm::IRBuilder<> builder(R);
-            builder.CreateCall(report);
-        }
-    }
-}
-
-void CountBasicBlocks::instrumentBlock(llvm::BasicBlock* B, llvm::Value* increment){
+llvm::GlobalVariable* createCounter(llvm::BasicBlock* B){
     auto F = B->getParent();
     //create a global variable for each basic block to store the count
     llvm::GlobalVariable *bbCounter = new llvm::GlobalVariable(
@@ -123,23 +105,62 @@ void CountBasicBlocks::instrumentBlock(llvm::BasicBlock* B, llvm::Value* increme
         llvm::ConstantInt::get(llvm::Type::getInt64Ty(F->getContext()), 0),
         B->getName() + "_bbCounter"
     );
+    return bbCounter;
+}
+
+void CountBasicBlocks::buildProxy(llvm::Function &F, std::set<LoopSummary*> SL) {
+
+    //set up global variables to store the count of each basic block
+    std::map<llvm::BasicBlock*, llvm::GlobalVariable*> counters;
+    std::map<llvm::BasicBlock*, std::string> bbIDs;
+    for (auto &B: F) {
+        counters[&B] = createCounter(&B);
+        bbIDs[&B] = getBlockID(&B);
+    }
+    
+    // instrument the basic blocks 
+    std::set<llvm::BasicBlock*> instrumented;
+    for (auto summary: SL){
+        instrumentSummarizedLoop(summary, counters);
+
+        //mark the blocks that are instrumented
+        for(auto B: summary->L.getBlocks()){
+            instrumented.insert(B);
+        }
+    }
+    for(auto &B: F){
+        if(instrumented.find(&B) != instrumented.end()) continue;
+        instrumentNormalBlock(&B, counters[&B]);
+    }
+
+    // create a call to the report function before function returns
+    llvm::Function* report = createReport(F, counters, bbIDs);
+    for(auto &B: F){
+        if(llvm::ReturnInst* R = llvm::dyn_cast<llvm::ReturnInst>(B.getTerminator())){
+            llvm::IRBuilder<> builder(R);
+            builder.CreateCall(report);
+        }
+    }
+}
+
+
+void CountBasicBlocks::instrumentBlock(llvm::BasicBlock* B, llvm::GlobalVariable* counter, llvm::Value* increment){
 
     //insert the increment instruction at the end of the basic block
     auto InsertPos = B->getTerminator(); 
-    llvm::Value *OldVal = new llvm::LoadInst(llvm::Type::getInt64Ty(B->getContext()), bbCounter, "old.bb.count", InsertPos);
+    llvm::Value *OldVal = new llvm::LoadInst(llvm::Type::getInt64Ty(B->getContext()), counter, "old.bb.count", InsertPos);
     llvm::Value *NewVal = llvm::BinaryOperator::Create(
                 llvm::Instruction::Add
             , OldVal
             , increment
             , "new.bb.count"
             , InsertPos);
-    new llvm::StoreInst(NewVal, bbCounter, InsertPos);
+    new llvm::StoreInst(NewVal, counter, InsertPos);
 
-    counters[B] = bbCounter;
 }
 
-void CountBasicBlocks::instrumentNormalBlock(llvm::BasicBlock* B){
-    instrumentBlock(B, llvm::ConstantInt::get(llvm::Type::getInt64Ty(B->getContext()), 1));
+void CountBasicBlocks::instrumentNormalBlock(llvm::BasicBlock* B, llvm::GlobalVariable* counter){
+    instrumentBlock(B, counter, llvm::ConstantInt::get(llvm::Type::getInt64Ty(B->getContext()), 1));
 }
 
 llvm::Value* materializeSCEV(llvm::BasicBlock* B, llvm::ScalarEvolution &SE, const llvm::SCEV* scev){
@@ -150,16 +171,16 @@ llvm::Value* materializeSCEV(llvm::BasicBlock* B, llvm::ScalarEvolution &SE, con
     return val;
 }
 
-void CountBasicBlocks::instrumentSummarizedBlock(llvm::BasicBlock* B, const llvm::SCEV* backedgeCount, llvm::ScalarEvolution &SE){
+void CountBasicBlocks::instrumentSummarizedBlock(llvm::BasicBlock* B, llvm::GlobalVariable* counter, const llvm::SCEV* backedgeCount, llvm::ScalarEvolution &SE){
     auto builder = llvm::IRBuilder<>(B->getContext());
     auto bcount = materializeSCEV(B, SE, backedgeCount);
             
     if (bcount->getType() == llvm::Type::getInt64Ty(B->getContext())){
-        instrumentBlock(B, bcount);
+        instrumentBlock(B, counter, bcount);
     }
     else if (bcount->getType() == llvm::Type::getInt32Ty(B->getContext())){
         auto sext = new llvm::SExtInst(bcount, llvm::Type::getInt64Ty(B->getContext()), "sext", B->getTerminator());
-        instrumentBlock(B, sext);
+        instrumentBlock(B, counter, sext);
     }
     else{
         assert(false && "unsupported backedge count type, only support 64-bit or 32-bit integer");
@@ -202,13 +223,10 @@ std::map<llvm::BasicBlock*, const llvm::SCEV*> getSymCounts(LoopSummary* LS){
     return symCounts;
 }
 
-void CountBasicBlocks::instrumentSummarizedLoop(LoopSummary* LS){
+void CountBasicBlocks::instrumentSummarizedLoop(LoopSummary* LS, std::map<llvm::BasicBlock*, llvm::GlobalVariable*> counters){
     auto symCounts = getSymCounts(LS);
     for(auto [B, count]: symCounts){
-        instrumentSummarizedBlock(B, count, LS->SE);
+        auto counter = counters[B];
+        instrumentSummarizedBlock(B, counter, count, LS->SE);
     }
-}
-
-bool CountBasicBlocks::isInstrumented(llvm::BasicBlock* B){
-    return counters.find(B) != counters.end();
 }

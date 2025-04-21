@@ -14,15 +14,15 @@ module asm ".globl _ZSt21ios_base_library_initv"
 @_ZSt4cout = external global %"class.std::basic_ostream", align 8
 
 ; Function Attrs: mustprogress noinline optnone sspstrong uwtable
-define dso_local void @print_counter(i32 noundef %0, ptr noundef %1, i64 noundef %2) #0 {
-  %4 = alloca i32, align 4
+define dso_local void @print_counter(ptr noundef %0, ptr noundef %1, i64 noundef %2) #0 {
+  %4 = alloca ptr, align 8
   %5 = alloca ptr, align 8
   %6 = alloca i64, align 8
-  store i32 %0, ptr %4, align 4
+  store ptr %0, ptr %4, align 8
   store ptr %1, ptr %5, align 8
   store i64 %2, ptr %6, align 8
-  %7 = load i32, ptr %4, align 4
-  %8 = call noundef nonnull align 8 dereferenceable(8) ptr @_ZNSolsEi(ptr noundef nonnull align 8 dereferenceable(8) @_ZSt4cout, i32 noundef %7)
+  %7 = load ptr, ptr %4, align 8
+  %8 = call noundef nonnull align 8 dereferenceable(8) ptr @_ZStlsISt11char_traitsIcEERSt13basic_ostreamIcT_ES5_PKc(ptr noundef nonnull align 8 dereferenceable(8) @_ZSt4cout, ptr noundef %7)
   %9 = call noundef nonnull align 8 dereferenceable(8) ptr @_ZStlsISt11char_traitsIcEERSt13basic_ostreamIcT_ES5_c(ptr noundef nonnull align 8 dereferenceable(8) %8, i8 noundef signext 32)
   %10 = load ptr, ptr %5, align 8
   %11 = call noundef nonnull align 8 dereferenceable(8) ptr @_ZStlsISt11char_traitsIcEERSt13basic_ostreamIcT_ES5_PKc(ptr noundef nonnull align 8 dereferenceable(8) %9, ptr noundef %10)
@@ -36,8 +36,6 @@ define dso_local void @print_counter(i32 noundef %0, ptr noundef %1, i64 noundef
 declare noundef nonnull align 8 dereferenceable(8) ptr @_ZStlsISt11char_traitsIcEERSt13basic_ostreamIcT_ES5_c(ptr noundef nonnull align 8 dereferenceable(8), i8 noundef signext) #1
 
 declare noundef nonnull align 8 dereferenceable(8) ptr @_ZStlsISt11char_traitsIcEERSt13basic_ostreamIcT_ES5_PKc(ptr noundef nonnull align 8 dereferenceable(8), ptr noundef) #1
-
-declare noundef nonnull align 8 dereferenceable(8) ptr @_ZNSolsEi(ptr noundef nonnull align 8 dereferenceable(8), i32 noundef) #1
 
 declare noundef nonnull align 8 dereferenceable(8) ptr @_ZNSolsEl(ptr noundef nonnull align 8 dereferenceable(8), i64 noundef) #1
 
