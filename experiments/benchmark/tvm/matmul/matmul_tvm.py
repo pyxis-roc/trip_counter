@@ -47,4 +47,4 @@ def run_matmul_lib(
     return end_time - start_time
 
 if __name__ == "__main__":
-    run_matmul_lib("matmul_tvm_instr.so")
+    run_matmul_lib("matmul_tvm_proxy.so")

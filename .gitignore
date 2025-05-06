@@ -1,1 +1,11 @@
 trip_count_kernels
+log*
+build/
+.cache/
+.vscode/
+experiments/caller
+experiments/symCount
+__pycache__/
+*.so
+instr.prof
+*.pdf

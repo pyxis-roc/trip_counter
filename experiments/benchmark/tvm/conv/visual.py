@@ -17,23 +17,41 @@ sizes = conv_exp1['size'].astype(str)
 instr_exec_time = (conv_exp1['instr_exec_time'] + conv_exp2['instr_exec_time'] + conv_exp3['instr_exec_time']) / 3 * 1000
 proxy_exec_time = (conv_exp1['proxy_exec_time'] + conv_exp2['proxy_exec_time'] + conv_exp3['proxy_exec_time']) / 3 * 1000
 
-fig, ax = plt.subplots()
+# Figure 1: Initialization Time
+fig1, ax1 = plt.subplots()
 bar_width = 0.35
 index = np.arange(len(sizes))
 
-ax.bar(index, instr_exec_time + instr_analysis_time, bar_width, label='instr_exec_time')
-ax.bar(index, instr_analysis_time, bar_width, label='instr_analysis_time')
-ax.bar(index + bar_width, proxy_exec_time + proxy_analysis_time, bar_width, label='proxy_exec_time')
-ax.bar(index + bar_width, proxy_analysis_time, bar_width, label='proxy_analysis_time')
+ax1.bar(index, instr_analysis_time, bar_width, label='instr_analysis_time')
+ax1.bar(index + bar_width, proxy_analysis_time, bar_width, label='proxy_analysis_time')
 
-ax.set_xticks(index + bar_width / 2)
-ax.set_xticklabels(sizes)
+ax1.set_xticks(index + bar_width / 2)
+ax1.set_xticklabels(sizes)
 
-ax.set_xlabel('Input Size')
-ax.set_ylabel('Execution Time (ms)')
-ax.set_title('Execution Time of Instr and Proxy')
-ax.set_yscale('log')
+ax1.set_xlabel('Input Size')
+ax1.set_ylabel('Initialization Time (ms)')
+ax1.set_title('Initialization Time of Instr and Proxy')
+ax1.set_yscale('log')
 
 plt.legend()
+plt.savefig('results/conv_init_time_comparison.pdf')
 
-plt.savefig('results/conv_runtime_comparison.pdf')
+# Figure 1: Execution Time
+fig1, ax1 = plt.subplots()
+bar_width = 0.35
+index = np.arange(len(sizes))
+
+ax1.bar(index, instr_exec_time, bar_width, label='LLVM PGO')
+ax1.bar(index + bar_width, proxy_exec_time, bar_width, label='Proxy')
+
+ax1.set_xticks(index + bar_width / 2)
+ax1.set_xticklabels(sizes)
+
+ax1.set_xlabel('Input Size')
+ax1.set_ylabel('Execution Time (ms)')
+ax1.set_title('Execution Time of LLVM PGO Instrumentation and Proxy')
+ax1.set_yscale('log')
+ax1.yaxis.grid(True, which='both', linestyle='--', linewidth=0.5)
+
+plt.legend()
+plt.savefig('results/conv-execution-time-comparison.pdf')

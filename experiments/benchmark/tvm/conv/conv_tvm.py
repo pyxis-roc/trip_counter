@@ -3,12 +3,6 @@ from tvm import te, topi
 import numpy as np
 import time
 
-# Define the filter parameters
-# num_filter = 16           # Number of filters
-# kernel_size = (3, 3)      # Kernel size
-# stride = (1, 1)           # Stride
-# padding = (1, 1)          # Padding
-
 
 def get_conv_kernel(num_filter = 16, kernel_size = (3, 3), stride = (1, 1), padding = (1, 1)):
 

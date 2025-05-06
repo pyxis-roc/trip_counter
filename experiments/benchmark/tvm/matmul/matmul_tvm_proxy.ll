@@ -3,14 +3,6 @@ source_filename = "TVMMod"
 target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
 target triple = "x86_64-unknown-linux-gnu"
 
-module asm ".globl _ZSt21ios_base_library_initv"
-
-%"class.std::basic_ostream" = type { ptr, %"class.std::basic_ios" }
-%"class.std::basic_ios" = type { %"class.std::ios_base", ptr, i8, i8, ptr, ptr, ptr, ptr }
-%"class.std::ios_base" = type { ptr, i64, i64, i32, i32, i32, ptr, %"struct.std::ios_base::_Words", [8 x %"struct.std::ios_base::_Words"], i32, ptr, %"class.std::locale" }
-%"struct.std::ios_base::_Words" = type { ptr, i64 }
-%"class.std::locale" = type { ptr }
-
 @__TVMAPISetLastError = linkonce dllexport local_unnamed_addr global ptr null, align 8
 @.str = private constant [57 x i8] c"Assert fail: num_args == 3, matmul: num_args should be 3\00", align 1
 @.str.1 = private constant [75 x i8] c"Assert fail: not T.isnullptr(args), matmul: TVMValue* arg pointer was NULL\00", align 1
@@ -72,21 +64,21 @@ module asm ".globl _ZSt21ios_base_library_initv"
 @for_end_ax0.loopexit_bbCounter = common global i64 0
 @for_end_ax0.loopexit2_bbCounter = common global i64 0
 @for_end_ax0_bbCounter = common global i64 0
-@_ZSt4cout = external global %"class.std::basic_ostream", align 8
+@.str.29 = private unnamed_addr constant [11 x i8] c"%d %s %ld\0A\00", align 1
 @0 = private unnamed_addr constant [39 x i8] c"for_begin_ax1.preheader.lr.ph.split.us\00", align 1
 @1 = private unnamed_addr constant [40 x i8] c"for_begin_ax1.preheader.us.us.preheader\00", align 1
 @2 = private unnamed_addr constant [6 x i8] c"entry\00", align 1
-@3 = private unnamed_addr constant [60 x i8] c"for_begin_k.for_end_k_crit_edge.us.us.us.unr-lcssa.loopexit\00", align 1
-@4 = private unnamed_addr constant [40 x i8] c"for_body_ax1.us9.prol.loopexit.loopexit\00", align 1
-@5 = private unnamed_addr constant [30 x i8] c"for_body_k.us.us.us.preheader\00", align 1
-@6 = private unnamed_addr constant [22 x i8] c"vector.body.preheader\00", align 1
-@7 = private unnamed_addr constant [47 x i8] c"for_begin_ax1.for_end_ax1_crit_edge.split.us11\00", align 1
-@8 = private unnamed_addr constant [51 x i8] c"for_begin_ax1.for_end_ax1_crit_edge.split.us.us.us\00", align 1
-@9 = private unnamed_addr constant [12 x i8] c"for_end_ax0\00", align 1
-@10 = private unnamed_addr constant [28 x i8] c"for_body_ax1.us9.preheader1\00", align 1
-@11 = private unnamed_addr constant [21 x i8] c"for_end_ax0.loopexit\00", align 1
+@3 = private unnamed_addr constant [22 x i8] c"vector.body.preheader\00", align 1
+@4 = private unnamed_addr constant [60 x i8] c"for_begin_k.for_end_k_crit_edge.us.us.us.unr-lcssa.loopexit\00", align 1
+@5 = private unnamed_addr constant [32 x i8] c"for_body_ax1.us9.prol.preheader\00", align 1
+@6 = private unnamed_addr constant [30 x i8] c"for_body_k.us.us.us.preheader\00", align 1
+@7 = private unnamed_addr constant [40 x i8] c"for_body_ax1.us9.prol.loopexit.loopexit\00", align 1
+@8 = private unnamed_addr constant [47 x i8] c"for_begin_ax1.for_end_ax1_crit_edge.split.us11\00", align 1
+@9 = private unnamed_addr constant [51 x i8] c"for_begin_ax1.for_end_ax1_crit_edge.split.us.us.us\00", align 1
+@10 = private unnamed_addr constant [12 x i8] c"for_end_ax0\00", align 1
+@11 = private unnamed_addr constant [28 x i8] c"for_body_ax1.us9.preheader1\00", align 1
 @12 = private unnamed_addr constant [56 x i8] c"for_begin_ax1.for_end_ax1_crit_edge.split.us11.loopexit\00", align 1
-@13 = private unnamed_addr constant [32 x i8] c"for_body_ax1.us9.prol.preheader\00", align 1
+@13 = private unnamed_addr constant [21 x i8] c"for_end_ax0.loopexit\00", align 1
 @14 = private unnamed_addr constant [22 x i8] c"for_end_ax0.loopexit2\00", align 1
 @15 = private unnamed_addr constant [30 x i8] c"for_begin_ax1.preheader.us.us\00", align 1
 @16 = private unnamed_addr constant [37 x i8] c"for_begin_ax1.preheader.us.preheader\00", align 1
@@ -1098,67 +1090,67 @@ declare half @llvm.fabs.f16(half) #3
 define void @matmul_compute__print_bb_count() {
 entry:
   %bb.count = load i64, ptr @for_begin_ax1.preheader.lr.ph.split.us_bbCounter, align 8
-  call void @print_counter(i32 1015978224, ptr @0, i64 %bb.count)
+  call void @print_counter(i32 -251741968, ptr @0, i64 %bb.count)
   %bb.count1 = load i64, ptr @for_begin_ax1.preheader.us.us.preheader_bbCounter, align 8
-  call void @print_counter(i32 1015978464, ptr @1, i64 %bb.count1)
+  call void @print_counter(i32 -251741728, ptr @1, i64 %bb.count1)
   %bb.count2 = load i64, ptr @entry_bbCounter, align 8
-  call void @print_counter(i32 1015978992, ptr @2, i64 %bb.count2)
-  %bb.count3 = load i64, ptr @for_begin_k.for_end_k_crit_edge.us.us.us.unr-lcssa.loopexit_bbCounter, align 8
-  call void @print_counter(i32 1015990928, ptr @3, i64 %bb.count3)
-  %bb.count4 = load i64, ptr @for_body_ax1.us9.prol.loopexit.loopexit_bbCounter, align 8
-  call void @print_counter(i32 1015994720, ptr @4, i64 %bb.count4)
-  %bb.count5 = load i64, ptr @for_body_k.us.us.us.preheader_bbCounter, align 8
-  call void @print_counter(i32 1016015504, ptr @5, i64 %bb.count5)
-  %bb.count6 = load i64, ptr @vector.body.preheader_bbCounter, align 8
-  call void @print_counter(i32 1016016112, ptr @6, i64 %bb.count6)
-  %bb.count7 = load i64, ptr @for_begin_ax1.for_end_ax1_crit_edge.split.us11_bbCounter, align 8
-  call void @print_counter(i32 1016026000, ptr @7, i64 %bb.count7)
-  %bb.count8 = load i64, ptr @for_begin_ax1.for_end_ax1_crit_edge.split.us.us.us_bbCounter, align 8
-  call void @print_counter(i32 1016026352, ptr @8, i64 %bb.count8)
-  %bb.count9 = load i64, ptr @for_end_ax0_bbCounter, align 8
-  call void @print_counter(i32 1016037312, ptr @9, i64 %bb.count9)
-  %bb.count10 = load i64, ptr @for_body_ax1.us9.preheader1_bbCounter, align 8
-  call void @print_counter(i32 1016059808, ptr @10, i64 %bb.count10)
-  %bb.count11 = load i64, ptr @for_end_ax0.loopexit_bbCounter, align 8
-  call void @print_counter(i32 1016069728, ptr @11, i64 %bb.count11)
+  call void @print_counter(i32 -251741200, ptr @2, i64 %bb.count2)
+  %bb.count3 = load i64, ptr @vector.body.preheader_bbCounter, align 8
+  call void @print_counter(i32 -251735008, ptr @3, i64 %bb.count3)
+  %bb.count4 = load i64, ptr @for_begin_k.for_end_k_crit_edge.us.us.us.unr-lcssa.loopexit_bbCounter, align 8
+  call void @print_counter(i32 -251729264, ptr @4, i64 %bb.count4)
+  %bb.count5 = load i64, ptr @for_body_ax1.us9.prol.preheader_bbCounter, align 8
+  call void @print_counter(i32 -251725376, ptr @5, i64 %bb.count5)
+  %bb.count6 = load i64, ptr @for_body_k.us.us.us.preheader_bbCounter, align 8
+  call void @print_counter(i32 -251704688, ptr @6, i64 %bb.count6)
+  %bb.count7 = load i64, ptr @for_body_ax1.us9.prol.loopexit.loopexit_bbCounter, align 8
+  call void @print_counter(i32 -251703984, ptr @7, i64 %bb.count7)
+  %bb.count8 = load i64, ptr @for_begin_ax1.for_end_ax1_crit_edge.split.us11_bbCounter, align 8
+  call void @print_counter(i32 -251694192, ptr @8, i64 %bb.count8)
+  %bb.count9 = load i64, ptr @for_begin_ax1.for_end_ax1_crit_edge.split.us.us.us_bbCounter, align 8
+  call void @print_counter(i32 -251693840, ptr @9, i64 %bb.count9)
+  %bb.count10 = load i64, ptr @for_end_ax0_bbCounter, align 8
+  call void @print_counter(i32 -251682880, ptr @10, i64 %bb.count10)
+  %bb.count11 = load i64, ptr @for_body_ax1.us9.preheader1_bbCounter, align 8
+  call void @print_counter(i32 -251660384, ptr @11, i64 %bb.count11)
   %bb.count12 = load i64, ptr @for_begin_ax1.for_end_ax1_crit_edge.split.us11.loopexit_bbCounter, align 8
-  call void @print_counter(i32 1016092320, ptr @12, i64 %bb.count12)
-  %bb.count13 = load i64, ptr @for_body_ax1.us9.prol.preheader_bbCounter, align 8
-  call void @print_counter(i32 1016112320, ptr @13, i64 %bb.count13)
+  call void @print_counter(i32 -251658368, ptr @12, i64 %bb.count12)
+  %bb.count13 = load i64, ptr @for_end_ax0.loopexit_bbCounter, align 8
+  call void @print_counter(i32 -251650464, ptr @13, i64 %bb.count13)
   %bb.count14 = load i64, ptr @for_end_ax0.loopexit2_bbCounter, align 8
-  call void @print_counter(i32 1016123152, ptr @14, i64 %bb.count14)
+  call void @print_counter(i32 -251595888, ptr @14, i64 %bb.count14)
   %bb.count15 = load i64, ptr @for_begin_ax1.preheader.us.us_bbCounter, align 8
-  call void @print_counter(i32 1016130240, ptr @15, i64 %bb.count15)
+  call void @print_counter(i32 -251589952, ptr @15, i64 %bb.count15)
   %bb.count16 = load i64, ptr @for_begin_ax1.preheader.us.preheader_bbCounter, align 8
-  call void @print_counter(i32 1016130336, ptr @16, i64 %bb.count16)
+  call void @print_counter(i32 -251589856, ptr @16, i64 %bb.count16)
   %bb.count17 = load i64, ptr @for_begin_ax1.preheader.us_bbCounter, align 8
-  call void @print_counter(i32 1016130496, ptr @17, i64 %bb.count17)
+  call void @print_counter(i32 -251589696, ptr @17, i64 %bb.count17)
   %bb.count18 = load i64, ptr @for_body_ax1.us.us.us_bbCounter, align 8
-  call void @print_counter(i32 1016143280, ptr @18, i64 %bb.count18)
+  call void @print_counter(i32 -251576912, ptr @18, i64 %bb.count18)
   %bb.count19 = load i64, ptr @for_begin_k.for_end_k_crit_edge.us.us.us_bbCounter, align 8
-  call void @print_counter(i32 1016143792, ptr @19, i64 %bb.count19)
+  call void @print_counter(i32 -251576400, ptr @19, i64 %bb.count19)
   %bb.count20 = load i64, ptr @for_begin_k.for_end_k_crit_edge.us.us.us.unr-lcssa_bbCounter, align 8
-  call void @print_counter(i32 1016148864, ptr @20, i64 %bb.count20)
+  call void @print_counter(i32 -251571328, ptr @20, i64 %bb.count20)
   %bb.count21 = load i64, ptr @for_body_k.us.us.us_bbCounter, align 8
-  call void @print_counter(i32 1016149248, ptr @21, i64 %bb.count21)
+  call void @print_counter(i32 -251570944, ptr @21, i64 %bb.count21)
   %bb.count22 = load i64, ptr @for_body_ax1.us9.prol.loopexit_bbCounter, align 8
-  call void @print_counter(i32 1016161824, ptr @22, i64 %bb.count22)
+  call void @print_counter(i32 -251558368, ptr @22, i64 %bb.count22)
   %bb.count23 = load i64, ptr @for_body_ax1.us9.prol_bbCounter, align 8
-  call void @print_counter(i32 1016162128, ptr @23, i64 %bb.count23)
+  call void @print_counter(i32 -251558064, ptr @23, i64 %bb.count23)
   %bb.count24 = load i64, ptr @for_body_ax1.us9_bbCounter, align 8
-  call void @print_counter(i32 1016162272, ptr @24, i64 %bb.count24)
+  call void @print_counter(i32 -251557920, ptr @24, i64 %bb.count24)
   %bb.count25 = load i64, ptr @for_body_k.us.us.us.epil_bbCounter, align 8
-  call void @print_counter(i32 1016169232, ptr @25, i64 %bb.count25)
+  call void @print_counter(i32 -251550960, ptr @25, i64 %bb.count25)
   %bb.count26 = load i64, ptr @vector.body_bbCounter, align 8
-  call void @print_counter(i32 1016176496, ptr @26, i64 %bb.count26)
+  call void @print_counter(i32 -251543696, ptr @26, i64 %bb.count26)
   %bb.count27 = load i64, ptr @middle.block_bbCounter, align 8
-  call void @print_counter(i32 1016176640, ptr @27, i64 %bb.count27)
+  call void @print_counter(i32 -251543552, ptr @27, i64 %bb.count27)
   %bb.count28 = load i64, ptr @for_body_ax1.us9.preheader_bbCounter, align 8
-  call void @print_counter(i32 1016176784, ptr @28, i64 %bb.count28)
+  call void @print_counter(i32 -251543408, ptr @28, i64 %bb.count28)
   ret void
 }
 
-; Function Attrs: mustprogress noinline optnone sspstrong uwtable
+; Function Attrs: noinline nounwind optnone uwtable
 define dso_local void @print_counter(i32 noundef %0, ptr noundef %1, i64 noundef %2) #5 {
   %4 = alloca i32, align 4
   %5 = alloca ptr, align 8
@@ -1167,35 +1159,20 @@ define dso_local void @print_counter(i32 noundef %0, ptr noundef %1, i64 noundef
   store ptr %1, ptr %5, align 8
   store i64 %2, ptr %6, align 8
   %7 = load i32, ptr %4, align 4
-  %8 = call noundef nonnull align 8 dereferenceable(8) ptr @_ZNSolsEi(ptr noundef nonnull align 8 dereferenceable(8) @_ZSt4cout, i32 noundef %7)
-  %9 = call noundef nonnull align 8 dereferenceable(8) ptr @_ZStlsISt11char_traitsIcEERSt13basic_ostreamIcT_ES5_c(ptr noundef nonnull align 8 dereferenceable(8) %8, i8 noundef signext 32)
-  %10 = load ptr, ptr %5, align 8
-  %11 = call noundef nonnull align 8 dereferenceable(8) ptr @_ZStlsISt11char_traitsIcEERSt13basic_ostreamIcT_ES5_PKc(ptr noundef nonnull align 8 dereferenceable(8) %9, ptr noundef %10)
-  %12 = call noundef nonnull align 8 dereferenceable(8) ptr @_ZStlsISt11char_traitsIcEERSt13basic_ostreamIcT_ES5_c(ptr noundef nonnull align 8 dereferenceable(8) %11, i8 noundef signext 32)
-  %13 = load i64, ptr %6, align 8
-  %14 = call noundef nonnull align 8 dereferenceable(8) ptr @_ZNSolsEl(ptr noundef nonnull align 8 dereferenceable(8) %12, i64 noundef %13)
-  %15 = call noundef nonnull align 8 dereferenceable(8) ptr @_ZNSolsEPFRSoS_E(ptr noundef nonnull align 8 dereferenceable(8) %14, ptr noundef @_ZSt4endlIcSt11char_traitsIcEERSt13basic_ostreamIT_T0_ES6_)
+  %8 = load ptr, ptr %5, align 8
+  %9 = load i64, ptr %6, align 8
+  %10 = call i32 (ptr, ...) @printf(ptr noundef @.str.29, i32 noundef %7, ptr noundef %8, i64 noundef %9)
   ret void
 }
 
-declare noundef nonnull align 8 dereferenceable(8) ptr @_ZNSolsEi(ptr noundef nonnull align 8 dereferenceable(8), i32 noundef) #6
-
-declare noundef nonnull align 8 dereferenceable(8) ptr @_ZStlsISt11char_traitsIcEERSt13basic_ostreamIcT_ES5_c(ptr noundef nonnull align 8 dereferenceable(8), i8 noundef signext) #6
-
-declare noundef nonnull align 8 dereferenceable(8) ptr @_ZStlsISt11char_traitsIcEERSt13basic_ostreamIcT_ES5_PKc(ptr noundef nonnull align 8 dereferenceable(8), ptr noundef) #6
-
-declare noundef nonnull align 8 dereferenceable(8) ptr @_ZNSolsEl(ptr noundef nonnull align 8 dereferenceable(8), i64 noundef) #6
-
-declare noundef nonnull align 8 dereferenceable(8) ptr @_ZSt4endlIcSt11char_traitsIcEERSt13basic_ostreamIT_T0_ES6_(ptr noundef nonnull align 8 dereferenceable(8)) #6
-
-declare noundef nonnull align 8 dereferenceable(8) ptr @_ZNSolsEPFRSoS_E(ptr noundef nonnull align 8 dereferenceable(8), ptr noundef) #6
+declare i32 @printf(ptr noundef, ...) #6
 
 attributes #0 = { "target-cpu"="generic" }
 attributes #1 = { nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write) }
 attributes #2 = { nofree noinline norecurse nosync nounwind memory(argmem: readwrite) "target-cpu"="generic" }
 attributes #3 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
 attributes #4 = { nofree nosync nounwind memory(none) "target-cpu"="generic" "target-features" }
-attributes #5 = { mustprogress noinline optnone sspstrong uwtable "frame-pointer"="all" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cmov,+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "tune-cpu"="generic" }
+attributes #5 = { noinline nounwind optnone uwtable "frame-pointer"="all" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cmov,+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "tune-cpu"="generic" }
 attributes #6 = { "frame-pointer"="all" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cmov,+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "tune-cpu"="generic" }
 
 !llvm.dbg.cu = !{!0}
@@ -1212,7 +1189,7 @@ attributes #6 = { "frame-pointer"="all" "no-trapping-math"="true" "stack-protect
 !7 = !{i32 7, !"PIE Level", i32 2}
 !8 = !{i32 7, !"uwtable", i32 2}
 !9 = !{i32 7, !"frame-pointer", i32 2}
-!10 = !{!"clang version 19.1.7"}
+!10 = !{!"clang version 19.1.0"}
 !11 = distinct !DISubprogram(name: "matmul", scope: !1, file: !1, type: !12, flags: DIFlagPrototyped, spFlags: DISPFlagLocalToUnit | DISPFlagDefinition | DISPFlagOptimized, unit: !0, retainedNodes: !17)
 !12 = !DISubroutineType(types: !13)
 !13 = !{!14, !15, !16, !14, !15, !16, !15}
