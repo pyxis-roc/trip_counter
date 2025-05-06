@@ -16,6 +16,7 @@ $ cd src/llvm
 $ mkdir build && cd build
 $ cmake ..
 $ cmake --build .
+$ cmake --install .
 ```
 
 Try this tool to generate instrumented IR
