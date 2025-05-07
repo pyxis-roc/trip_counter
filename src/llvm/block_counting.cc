@@ -165,7 +165,7 @@ void CountBasicBlocks::instrumentNormalBlock(llvm::BasicBlock* B, llvm::GlobalVa
 
 llvm::Value* materializeSCEV(llvm::BasicBlock* B, llvm::ScalarEvolution &SE, const llvm::SCEV* scev){
     llvm::IRBuilder<> builder(B->getContext());
-    llvm::SCEVExpander expander(SE,  B->getDataLayout(), "scev");
+    llvm::SCEVExpander expander(SE,  B->getModule()->getDataLayout(), "scev");
 
     auto val = expander.expandCodeFor(scev, scev->getType(), B->begin());
     return val;
