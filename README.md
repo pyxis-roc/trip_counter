@@ -3,10 +3,9 @@
 This is a tool to enable symbolic profiling for LLVM IR. It takes in a LLVM IR file and the target function name. Output is the instrumented LLVM IR. Calls to the target function will print execution count of its internal basic blocks.
 
 ### Requirements
-- **CMake**: Version 3.10 or higher.
-- **Python**: Version 3.6 or higher.
-- **Clang**: Version 10.0 or higher.
-- **LLVM**: Version 10.0 or higher.
+- **CMake**: Version 3.31.6 or higher.
+- **Clang**: Version 19.1.0 or higher.
+- **LLVM**: Version 19.1.0 or higher.
 
 ## Building and Running
 Use CMake to build the target
