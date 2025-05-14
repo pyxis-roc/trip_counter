@@ -15,6 +15,9 @@ execute_process(
 )
 include_directories(${LLVM_INCLUDE_DIRS})
 
+# Find nlohmann/json
+find_package(nlohmann_json REQUIRED)
+
 add_executable(
     symCount 
     main.cc 
@@ -33,6 +36,6 @@ add_executable(
 
 target_compile_definitions(symCount PRIVATE IR_PLUGIN_PATH="${PROJECT_SOURCE_DIR}/IR_plugin")
 target_include_directories(symCount PUBLIC "${PROJECT_SOURCE_DIR}")
-target_link_libraries(symCount LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis)
-target_link_libraries(instr-count LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis)
+target_link_libraries(symCount LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis nlohmann_json::nlohmann_json)
+target_link_libraries(instr-count LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis nlohmann_json::nlohmann_json)
 install(TARGETS symCount instr-count DESTINATION bin)
