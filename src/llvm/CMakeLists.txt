@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_CXX_COMPILER clang++)
 add_compile_options(-fno-rtti)
+set(CMAKE_EXE_LINKER_FLAGS "-fuse-ld=lld")
 
 find_package(LLVM REQUIRED CONFIG)
 execute_process(
