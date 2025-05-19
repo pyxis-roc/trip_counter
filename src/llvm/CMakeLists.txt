@@ -2,6 +2,13 @@ cmake_minimum_required(VERSION 3.10)
 
 project(symCount VERSION 1.0)
 
+# get nlohmann/json
+include(FetchContent)
+
+FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz)
+FetchContent_MakeAvailable(json)
+
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_CXX_COMPILER clang++)
@@ -16,8 +23,6 @@ execute_process(
 )
 include_directories(${LLVM_INCLUDE_DIRS})
 
-# Find nlohmann/json
-find_package(nlohmann_json REQUIRED)
 
 add_executable(
     symCount 
