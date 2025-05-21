@@ -19,7 +19,7 @@ class CountBasicBlocks{
     // at the end of the module, print the count of each basic block
 
     // static std::vector<llvm::GlobalVariable*> insertCounter(llvm::Module &M);
-    void buildProxy(llvm::Function &F, std::set<LoopSummary*> SL);
+    void buildProxy(llvm::Function &F, std::set<LoopSummary*> SL, std::map<llvm::BasicBlock*, std::string> bbIDs);
 
     private:
     // From IR_plugin/print.ll import the external print_counter function

@@ -21,7 +21,7 @@ $ cmake --install .
 Try this tool to generate instrumented IR
 
 ```bash
-$ ./symCount example.ll main 2> example_instrumented.ll
+$ ./symCount example.ll main > example_instrumented.ll
 ```
 
 Then when `example_instrumented.ll` is compiled and the `main` function is called. Execution counts of `main`'s internal basic blocks will be printed to stdout.

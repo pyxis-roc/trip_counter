@@ -23,7 +23,6 @@
 #include "llvm/Transforms/Utils/ScalarEvolutionExpander.h"
 #include <map>
 #include <cassert>
-#include <cstdlib>
 #include <string>
 #include "block_counting.hpp"
 #include "loop_summary.hpp"
@@ -108,14 +107,12 @@ llvm::GlobalVariable* createCounter(llvm::BasicBlock* B){
     return bbCounter;
 }
 
-void CountBasicBlocks::buildProxy(llvm::Function &F, std::set<LoopSummary*> SL) {
+void CountBasicBlocks::buildProxy(llvm::Function &F, std::set<LoopSummary*> SL, std::map<llvm::BasicBlock*, std::string> bbIDs) {
 
     //set up global variables to store the count of each basic block
     std::map<llvm::BasicBlock*, llvm::GlobalVariable*> counters;
-    std::map<llvm::BasicBlock*, std::string> bbIDs;
     for (auto &B: F) {
         counters[&B] = createCounter(&B);
-        bbIDs[&B] = getBlockID(&B);
     }
     
     // instrument the basic blocks 
