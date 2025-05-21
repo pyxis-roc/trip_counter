@@ -47,4 +47,9 @@ def run_matmul_lib(
     return end_time - start_time
 
 if __name__ == "__main__":
-    run_matmul_lib("matmul_tvm_proxy.so")
+
+    for size in range(100, 1100, 100):
+        plain_time = run_matmul_lib("matmul_tvm_plain.so", size, size, size)
+        print(f"Size {size}x{size}x{size} - Plain Execution time: {plain_time * 1000:.2f} ms")
+        pgo_time = run_matmul_lib("matmul_tvm.so", size, size, size)
+        print(f"Size {size}x{size}x{size} - PGO Execution time: {pgo_time * 1000:.2f} ms")

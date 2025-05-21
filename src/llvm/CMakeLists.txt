@@ -8,13 +8,7 @@ include(FetchContent)
 FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz)
 FetchContent_MakeAvailable(json)
 
-
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED True)
-set(CMAKE_CXX_COMPILER clang++)
-add_compile_options(-fno-rtti)
-set(CMAKE_EXE_LINKER_FLAGS "-fuse-ld=lld")
-
+# find llvm
 find_package(LLVM REQUIRED CONFIG)
 execute_process(
     COMMAND llvm-config --includedir 
@@ -23,6 +17,29 @@ execute_process(
 )
 include_directories(${LLVM_INCLUDE_DIRS})
 
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED True)
+set(CMAKE_CXX_COMPILER clang++)
+add_compile_options(-fno-rtti)
+set(CMAKE_EXE_LINKER_FLAGS "-fuse-ld=lld")
+
+
+# prepare utils llvm ir plugin using local compiler
+
+add_custom_command(
+    OUTPUT ${PROJECT_SOURCE_DIR}/IR_plugin/print.ll
+    COMMAND ${CMAKE_CXX_COMPILER} -S -emit-llvm
+                    ${PROJECT_SOURCE_DIR}/IR_plugin/print.cc
+                    -o ${PROJECT_SOURCE_DIR}/IR_plugin/print.ll
+    DEPENDS ${PROJECT_SOURCE_DIR}/IR_plugin/print.cc
+    COMMENT "Generating LLVM IR from /IR_plugin/print.cc"
+)
+
+add_custom_target(
+    GenerateIR ALL
+    DEPENDS ${PROJECT_SOURCE_DIR}/IR_plugin/print.ll
+)
 
 add_executable(
     symCount 
