@@ -1,4 +1,5 @@
 #include <llvm/IR/Module.h>
+#include <llvm/Analysis/ScalarEvolutionExpressions.h>
 #include "printer.hpp"
 
 using namespace llvm;
