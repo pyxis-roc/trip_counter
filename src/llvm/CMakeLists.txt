@@ -22,6 +22,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_CXX_COMPILER clang++)
 add_compile_options(-fno-rtti)
+# add_compile_options(-g)
 set(CMAKE_EXE_LINKER_FLAGS "-fuse-ld=lld")
 
 
@@ -57,8 +58,16 @@ add_executable(
     utils.cc
 )
 
+add_executable(
+    symb-viewer
+    symb_viewer.cc
+    symb_form.cc
+    utils.cc
+)
+
 target_compile_definitions(symCount PRIVATE IR_PLUGIN_PATH="${PROJECT_SOURCE_DIR}/IR_plugin")
 target_include_directories(symCount PUBLIC "${PROJECT_SOURCE_DIR}")
 target_link_libraries(symCount LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis nlohmann_json::nlohmann_json)
 target_link_libraries(instr-count LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis nlohmann_json::nlohmann_json)
-install(TARGETS symCount instr-count DESTINATION bin)
+target_link_libraries(symb-viewer LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis)
+install(TARGETS symCount instr-count symb-viewer DESTINATION bin)
