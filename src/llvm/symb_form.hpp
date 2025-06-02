@@ -7,6 +7,7 @@
         from a llvm control flow graph    
 */
 
+#include "llvm/IR/Argument.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Function.h"
 #include <memory>
@@ -197,9 +198,14 @@ public:
     shared_ptr<Loop> createLoop(std::shared_ptr<BasicGraph> BG, 
         llvm::BasicBlock* startBB, llvm::BasicBlock* endBB = nullptr);
 
-    shared_ptr<BasicGraph> getLoopGuardGraph(llvm::Loop* loop, shared_ptr<Symbol> bodyCount);
+    shared_ptr<BasicGraph> getLoopGuardGraph(shared_ptr<Symbol> initCount, llvm::Loop* loop);
     shared_ptr<Symbol> getLoopCount(llvm::Loop* loop);
 
+
+    // some utility functions
+    std::string getName(llvm::BasicBlock* BB);
+    std::string getName(llvm::Argument*);
+    std::string getName(llvm::Loop*);
 };
 
 class GraphViewer{

@@ -3,6 +3,7 @@
 #include "llvm/Analysis/LoopInfo.h"
 #include <llvm/IR/BasicBlock.h>
 #include <memory>
+#include <string>
 #include <tuple>
 
 shared_ptr<Program> GraphBuilder::createProgram(llvm::Function * F){
@@ -10,7 +11,7 @@ shared_ptr<Program> GraphBuilder::createProgram(llvm::Function * F){
     auto args = F->arg_begin();
     auto argList = std::vector<std::shared_ptr<Symbol>>();
     for (; args != F->arg_end(); ++args) {
-        auto argName = args->getName().str();
+        auto argName = getName(args);
         auto symbol = std::make_shared<Symbol>(argName);
         argList.push_back(symbol);
     }
@@ -90,7 +91,7 @@ shared_ptr<BasicGraph> GraphBuilder::createBasicGraph(std::shared_ptr<Symbol> co
     if (!startBB || startBB == endBB) return nullptr;
 
     auto blockID = getBlockID(startBB);
-    auto name = startBB->getName().str();
+    auto name = getName(startBB);
     auto BG = std::make_shared<BasicGraph>(blockID, name, count);
 
     switch (getGraphType(startBB, endBB)) {
@@ -122,8 +123,8 @@ GraphType GraphBuilder::getGraphType(llvm::BasicBlock* startBB, llvm::BasicBlock
         }
         else{
             llvm::errs() << "Error: GraphBuilder::getGraphType: Loop header is not a valid graph type for startBB " 
-                         << (startBB ? startBB->getName() : "null") << " and endBB " 
-                         << (endBB ? endBB->getName() : "null") << "\n";
+                         << (startBB ? getName(startBB) : "null") << " and endBB " 
+                         << (endBB ? getName(endBB) : "null") << "\n";
             return GraphType::Unknown;
         }
     }
@@ -149,7 +150,7 @@ GraphType GraphBuilder::getGraphType(llvm::BasicBlock* startBB, llvm::BasicBlock
     }
     
     llvm::errs() << "Error: GraphBuilder::getGraphType: Unsupported number of successors for block " 
-                 << startBB->getName() << ": " << startBB->getTerminator()->getNumSuccessors() << "\n";
+                 << getName(startBB) << ": " << startBB->getTerminator()->getNumSuccessors() << "\n";
     return GraphType::Unknown;
 }
 
@@ -165,7 +166,7 @@ shared_ptr<Branch> GraphBuilder::createBranch(std::shared_ptr<BasicGraph> BG,
 
     if (!startBB || startBB == endBB) return nullptr;
 
-    auto trueRatio_literal = "true_ratio_" + startBB->getName().str();
+    auto trueRatio_literal = "true_ratio_" + getName(startBB);
     auto falseRatio_literal = "(1 - " + trueRatio_literal + ")";
     auto trueRatio = make_shared<Symbol>(trueRatio_literal);
     auto falseRatio = make_shared<Symbol>(falseRatio_literal);
@@ -187,7 +188,9 @@ shared_ptr<Branch> GraphBuilder::createBranch(std::shared_ptr<BasicGraph> BG,
     );
 }
 
-shared_ptr<BasicGraph> GraphBuilder::getLoopGuardGraph(llvm::Loop* loop, shared_ptr<Symbol> bodyCount) {
+shared_ptr<BasicGraph> GraphBuilder::getLoopGuardGraph(shared_ptr<Symbol> initCount, llvm::Loop* loop) {
+    auto bodyCount = getLoopCount(loop);
+
     if (!loop) {
         llvm::errs() << "Error: getLoopGuard: Loop is null\n";
         return nullptr;
@@ -195,22 +198,23 @@ shared_ptr<BasicGraph> GraphBuilder::getLoopGuardGraph(llvm::Loop* loop, shared_
 
     auto BG = make_shared<BasicGraph>(
         getBlockID(loop->getHeader()), 
-        loop->getHeader()->getName().str()
+        getName(loop->getHeader())
     );
 
     if (loop->isLoopExiting(loop->getHeader())){
         // header exiting, header count = backedge count + 1, body count = backedge count
-        BG->count = bodyCount->addOne();
+        BG->count = bodyCount->addOne()->multiply(initCount);
     }
     else{
         // tail exiting, both header and body count = backedge count + 1
-        BG->count = bodyCount;
+        BG->count = bodyCount->multiply(initCount);
     }
 
     auto BB = createBasicBlock(BG, loop->getHeader());
     return BB;
 }
 
+// get the start and end blocks of the loop body 
 tuple<llvm::BasicBlock*, llvm::BasicBlock*> getLoopBody(llvm::Loop* loop){
     if (!loop) {
         llvm::errs() << "Error: getLoopBody: Loop is null\n";
@@ -252,8 +256,9 @@ shared_ptr<Loop> GraphBuilder::createLoop(std::shared_ptr<BasicGraph> BG,
     auto loopCount = getLoopCount(loop);
     auto [bodyStart, bodyEnd] = getLoopBody(loop);
 
-    auto guard = getLoopGuardGraph(loop, loopCount);
-    auto Gb = createGraph(loopCount->multiply(incoming_count), bodyStart, bodyEnd);
+    auto guard = getLoopGuardGraph(incoming_count, loop);
+    auto Gb = createGraph(loopCount->multiply(incoming_count), 
+        bodyStart, bodyEnd);
 
     return make_shared<Loop>(
         Loop(
@@ -266,7 +271,7 @@ shared_ptr<Loop> GraphBuilder::createLoop(std::shared_ptr<BasicGraph> BG,
 }
 
 shared_ptr<Symbol> GraphBuilder::getLoopCount(llvm::Loop* loop){
-    auto loopCount_literal = "loop_count_" + loop->getName().str();
+    auto loopCount_literal = "loop_count_" + getName(loop);
     auto loopCount = make_shared<Symbol>(loopCount_literal);
     return loopCount;
 }
@@ -364,4 +369,22 @@ void GraphViewer::showLoop(shared_ptr<Loop> L, std::ostream& os, int indent) {
     showBasicGraph(L->guard, os, indent + 2);
     os << pad << "Body Graph:\n";
     showGraph(L->Gb, os, indent + 2);
+}
+
+std::string GraphBuilder::getName(llvm::BasicBlock* BB) {
+    std::string name;
+    llvm::raw_string_ostream rso(name);
+    BB->printAsOperand(rso, false);
+    return rso.str();
+}
+
+std::string GraphBuilder::getName(llvm::Argument* arg) {
+    return arg->getName().str();
+}
+
+std::string GraphBuilder::getName(llvm::Loop* loop) {
+    std::string name;
+    llvm::raw_string_ostream rso(name);
+    loop->getHeader()->printAsOperand(rso, false);
+    return rso.str();
 }
