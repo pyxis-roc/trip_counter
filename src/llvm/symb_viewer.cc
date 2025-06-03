@@ -19,6 +19,7 @@
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <memory>
+#include "llvm/Transforms/Utils/Mem2Reg.h"
 
 using namespace llvm;
 
@@ -43,6 +44,7 @@ int main(int argc, char **argv) {
     FunctionAnalysisManager FAM;
     CGSCCAnalysisManager CGAM;
     ModuleAnalysisManager MAM;
+    FunctionPassManager FPM;
 
     PB.registerModuleAnalyses(MAM);
     PB.registerCGSCCAnalyses(CGAM);
@@ -50,11 +52,19 @@ int main(int argc, char **argv) {
     PB.registerLoopAnalyses(LAM);
     PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
 
+    FAM.registerPass([&] { return ScalarEvolutionAnalysis(); });
+    FAM.registerPass([&] { return LoopAnalysis(); });
+    FAM.registerPass([&] { return PostDominatorTreeAnalysis(); });
+
+    FPM.addPass(PromotePass());
+
     Function *TargetFunc = M->getFunction(FunctionName);
     if (!TargetFunc || TargetFunc->isDeclaration()) {
         errs() << "Function '" << FunctionName << "' not found or is a declaration.\n";
         return 1;
     }
+
+    FPM.run(*TargetFunc, FAM);
 
     // Loop Analysis
     auto &LI = FAM.getResult<LoopAnalysis>(*TargetFunc);

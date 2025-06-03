@@ -203,6 +203,7 @@ public:
 
 
     // some utility functions
+    
     std::string getName(llvm::BasicBlock* BB);
     std::string getName(llvm::Argument*);
     std::string getName(llvm::Loop*);

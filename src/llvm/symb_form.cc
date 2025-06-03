@@ -1,10 +1,13 @@
 #include "symb_form.hpp"
+#include "printer.hpp"
 #include "utils.hpp"
 #include "llvm/Analysis/LoopInfo.h"
+#include "llvm/Analysis/ScalarEvolution.h"
 #include <llvm/IR/BasicBlock.h>
 #include <memory>
 #include <string>
 #include <tuple>
+
 
 shared_ptr<Program> GraphBuilder::createProgram(llvm::Function * F){
 
@@ -42,8 +45,23 @@ llvm::BasicBlock* GraphBuilder::nextGraphHead(llvm::BasicBlock* startBB, llvm::B
     
     switch (getGraphType(startBB, endBB)) {
         
-        case GraphType::BasicBlock:
-            return startBB->getSingleSuccessor();
+        case GraphType::BasicBlock:{
+            // there are two cases, one is simple basic block, the other is a loop header
+            if (LI.isLoopHeader(startBB)) {
+                auto loop = LI.getLoopFor(startBB);
+                for (auto *succ : llvm::successors(startBB)) {
+                    if (loop->contains(succ)) {
+                        return succ;
+                    }
+                }
+                llvm::errs() << "Error: GraphBuilder::nextGraphHead: No successor of loop header is inside the loop\n";
+                return nullptr;
+            }
+            else{
+                return startBB->getSingleSuccessor();
+            }
+        }
+
 
         case GraphType::Branch:{
             auto trueSide = startBB->getTerminator()->getSuccessor(0);
@@ -65,6 +83,7 @@ llvm::BasicBlock* GraphBuilder::nextGraphHead(llvm::BasicBlock* startBB, llvm::B
             
             return commonPostDom;
         }
+        
         case GraphType::Loop:{
             auto loop = LI.getLoopFor(startBB);
             auto exitBlocks = llvm::SmallVector<llvm::BasicBlock*, 8>();
@@ -79,7 +98,7 @@ llvm::BasicBlock* GraphBuilder::nextGraphHead(llvm::BasicBlock* startBB, llvm::B
         }
             
         default:{
-            llvm::errs() << "Error: GraphBuilder::nextGraphHead: Unknown graph type for block " << (startBB ? startBB->getName() : "null") << "\n";
+            llvm::errs() << "Error: GraphBuilder::nextGraphHead: Unknown graph type for block " << (startBB ? getName(startBB) : "null") << "\n";
             return nullptr;
         }
     }
@@ -117,16 +136,11 @@ GraphType GraphBuilder::getGraphType(llvm::BasicBlock* startBB, llvm::BasicBlock
         if(!loop->contains(endBB)){
             return GraphType::Loop;
         }
-        // case 2: startBB and endBB are the subgraph of the current loop
-        else if (loop == LI.getLoopFor(endBB)){
+        // case 2: we are inside a loop, so in this level, loop header is just a basic block
+        else{
             return GraphType::BasicBlock;
         }
-        else{
-            llvm::errs() << "Error: GraphBuilder::getGraphType: Loop header is not a valid graph type for startBB " 
-                         << (startBB ? getName(startBB) : "null") << " and endBB " 
-                         << (endBB ? getName(endBB) : "null") << "\n";
-            return GraphType::Unknown;
-        }
+        
     }
 
     // cannot be a loop graph, check for basic block or branch graph
@@ -166,7 +180,7 @@ shared_ptr<Branch> GraphBuilder::createBranch(std::shared_ptr<BasicGraph> BG,
 
     if (!startBB || startBB == endBB) return nullptr;
 
-    auto trueRatio_literal = "true_ratio_" + getName(startBB);
+    auto trueRatio_literal = "TR_" + getName(startBB);
     auto falseRatio_literal = "(1 - " + trueRatio_literal + ")";
     auto trueRatio = make_shared<Symbol>(trueRatio_literal);
     auto falseRatio = make_shared<Symbol>(falseRatio_literal);
@@ -259,7 +273,7 @@ shared_ptr<Loop> GraphBuilder::createLoop(std::shared_ptr<BasicGraph> BG,
     auto guard = getLoopGuardGraph(incoming_count, loop);
     auto Gb = createGraph(loopCount->multiply(incoming_count), 
         bodyStart, bodyEnd);
-
+    
     return make_shared<Loop>(
         Loop(
             BG, 
@@ -270,10 +284,46 @@ shared_ptr<Loop> GraphBuilder::createLoop(std::shared_ptr<BasicGraph> BG,
     );
 }
 
+// expand the symbolic count to an expression that only uses program inputs
+string getExpandedSCEV(const llvm::SCEV* scev){
+    if (!scev) {
+        llvm::errs() << "Error: getExpandedSCEV: SCEV is null\n";
+        return "unknown";
+    }
+
+    std::string scevStr;
+    llvm::raw_string_ostream rso(scevStr);
+    Debug::printRootExpr(*scev, rso);
+    rso.flush();
+
+    // Expand the SCEV to a string representation
+    return scevStr;
+}
+
 shared_ptr<Symbol> GraphBuilder::getLoopCount(llvm::Loop* loop){
-    auto loopCount_literal = "loop_count_" + getName(loop);
-    auto loopCount = make_shared<Symbol>(loopCount_literal);
-    return loopCount;
+    if (!loop) {
+        llvm::errs() << "Error: getLoopCount: Loop is null\n";
+        return nullptr;
+    }
+
+    // Use ScalarEvolution to get the backedge taken count
+    llvm::ScalarEvolution *SE = &this->SE;
+    if (!SE) {
+        llvm::errs() << "Error: getLoopCount: ScalarEvolution is null\n";
+        return nullptr;
+    }
+
+    const llvm::SCEV *backedgeCount = SE->getBackedgeTakenCount(loop);
+    if (llvm::isa<llvm::SCEVCouldNotCompute>(backedgeCount)) {
+        llvm::errs() << "Warning: getLoopCount: Could not compute backedge count for loop " << getName(loop) << "\n";
+        // Fallback to symbolic name
+        auto loopCount_literal = "loop_count_" + getName(loop);
+        return make_shared<Symbol>(loopCount_literal);
+    }
+
+    // SCEV gives backedge count, but we want trip count = backedge count + 1
+    auto loopCount_literal = getExpandedSCEV(backedgeCount);
+    return make_shared<Symbol>(loopCount_literal);
 }
 
 void GraphViewer::showProgram(shared_ptr<Program> program, std::ostream& os, int indent) {
@@ -288,7 +338,7 @@ void GraphViewer::showProgram(shared_ptr<Program> program, std::ostream& os, int
     for (const auto& input : program->inputs) {
         os << input->literal << " ";
     }
-    os << "\n" << pad << "Graph ID: " << program->G->id << "\n";
+    os << "\n";
     showGraph(program->G, os, indent + 2);
 }
 
@@ -336,7 +386,7 @@ void GraphViewer::showBasicBlock(shared_ptr<BasicBlock> BB, std::ostream& os, in
         return;
     }
 
-    os << pad << "BasicBlock: " << BB->name << ", ID: " << BB->id << "\n";
+    os << pad << "BasicBlock: " << BB->name << "\n";
     os << pad << "Count: " << (BB ? BB->count->literal : "N/A") << "\n";
 }
 
@@ -347,7 +397,7 @@ void GraphViewer::showBranch(shared_ptr<Branch> BR, std::ostream& os, int indent
         return;
     }
 
-    os << pad << "Branch: " << BR->name << ", ID: " << BR->id << "\n";
+    os << pad << "Branch: " << BR->name << "\n";
     os << pad << "True Ratio: " << BR->trueRatio->literal << "\n";
     os << pad << "False Ratio: " << BR->falseRatio->literal << "\n";
     os << pad << "True Side Graph:\n";
@@ -363,7 +413,7 @@ void GraphViewer::showLoop(shared_ptr<Loop> L, std::ostream& os, int indent) {
         return;
     }
 
-    os << pad << "Loop: " << L->name << ", ID: " << L->id << "\n";
+    os << pad << "Loop: " << L->name << "\n";
     os << pad << "Loop Count: " << L->loopCount->literal << "\n";
     os << pad << "Guard Graph:\n";
     showBasicGraph(L->guard, os, indent + 2);
@@ -372,6 +422,9 @@ void GraphViewer::showLoop(shared_ptr<Loop> L, std::ostream& os, int indent) {
 }
 
 std::string GraphBuilder::getName(llvm::BasicBlock* BB) {
+    if(!BB) {
+        return "null";
+    }
     std::string name;
     llvm::raw_string_ostream rso(name);
     BB->printAsOperand(rso, false);
@@ -379,10 +432,19 @@ std::string GraphBuilder::getName(llvm::BasicBlock* BB) {
 }
 
 std::string GraphBuilder::getName(llvm::Argument* arg) {
-    return arg->getName().str();
+    if (!arg) {
+        return "null";
+    }
+    std::string name;
+    llvm::raw_string_ostream rso(name);
+    arg->printAsOperand(rso, false);
+    return rso.str();
 }
 
 std::string GraphBuilder::getName(llvm::Loop* loop) {
+    if(!loop) {
+        return "null";
+    }
     std::string name;
     llvm::raw_string_ostream rso(name);
     loop->getHeader()->printAsOperand(rso, false);
