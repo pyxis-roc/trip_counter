@@ -132,13 +132,8 @@ GraphType GraphBuilder::getGraphType(llvm::BasicBlock* startBB, llvm::BasicBlock
     if(LI.isLoopHeader(startBB)){
         auto loop = LI.getLoopFor(startBB);
         
-        // case 1: this loop is a subgraph of the current graph
         if(!loop->contains(endBB)){
             return GraphType::Loop;
-        }
-        // case 2: we are inside a loop, so in this level, loop header is just a basic block
-        else{
-            return GraphType::BasicBlock;
         }
         
     }
@@ -202,11 +197,11 @@ shared_ptr<Branch> GraphBuilder::createBranch(std::shared_ptr<BasicGraph> BG,
     );
 }
 
-shared_ptr<BasicGraph> GraphBuilder::getLoopGuardGraph(shared_ptr<Symbol> initCount, llvm::Loop* loop) {
+shared_ptr<BasicGraph> GraphBuilder::getLoopHeadGraph(shared_ptr<Symbol> initCount, llvm::Loop* loop) {
     auto bodyCount = getLoopCount(loop);
 
     if (!loop) {
-        llvm::errs() << "Error: getLoopGuard: Loop is null\n";
+        llvm::errs() << "Error: getLoopHead: Loop is null\n";
         return nullptr;
     }
 
@@ -250,7 +245,14 @@ tuple<llvm::BasicBlock*, llvm::BasicBlock*> getLoopBody(llvm::Loop* loop){
     }
 
     auto exitingBlock = exitingBlocks[0];
-    for (auto *succ : llvm::successors(exitingBlock)) {
+    // First, try to find a successor that is inside the loop and not the exiting block
+    for (auto *succ : llvm::successors(header)) {
+        if (loop->contains(succ) && succ != exitingBlock) {
+            return {succ, exitingBlock};
+        }
+    }
+    // Fallback: if not found, return any successor that is inside the loop (could be the exiting block itself)
+    for (auto *succ : llvm::successors(header)) {
         if (loop->contains(succ)) {
             return {succ, exitingBlock};
         }
@@ -270,7 +272,7 @@ shared_ptr<Loop> GraphBuilder::createLoop(std::shared_ptr<BasicGraph> BG,
     auto loopCount = getLoopCount(loop);
     auto [bodyStart, bodyEnd] = getLoopBody(loop);
 
-    auto guard = getLoopGuardGraph(incoming_count, loop);
+    auto head = getLoopHeadGraph(incoming_count, loop);
     auto Gb = createGraph(loopCount->multiply(incoming_count), 
         bodyStart, bodyEnd);
     
@@ -278,7 +280,7 @@ shared_ptr<Loop> GraphBuilder::createLoop(std::shared_ptr<BasicGraph> BG,
         Loop(
             BG, 
             loopCount, 
-            guard,
+            head,
             Gb
         )
     );
@@ -415,8 +417,8 @@ void GraphViewer::showLoop(shared_ptr<Loop> L, std::ostream& os, int indent) {
 
     os << pad << "Loop: " << L->name << "\n";
     os << pad << "Loop Count: " << L->loopCount->literal << "\n";
-    os << pad << "Guard Graph:\n";
-    showBasicGraph(L->guard, os, indent + 2);
+    os << pad << "Head Graph:\n";
+    showBasicGraph(L->head, os, indent + 2);
     os << pad << "Body Graph:\n";
     showGraph(L->Gb, os, indent + 2);
 }

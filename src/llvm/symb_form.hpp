@@ -141,14 +141,14 @@ public:
 class Loop : public BasicGraph{
 public:
     shared_ptr<Symbol> loopCount;
-    shared_ptr<BasicGraph> guard; // the loop guard basic block sometimes have different execution count to the body
+    shared_ptr<BasicGraph> head; // the loop head basic block sometimes have different execution count to the body
     shared_ptr<Graph> Gb;
 
-    Loop(shared_ptr<BasicGraph> BG, std::shared_ptr<Symbol> loopCount, std::shared_ptr<BasicGraph> guard, 
+    Loop(shared_ptr<BasicGraph> BG, std::shared_ptr<Symbol> loopCount, std::shared_ptr<BasicGraph> head, 
             std::shared_ptr<Graph> Gb): 
         BasicGraph(BG->id, BG->name, BG->count), 
         loopCount(loopCount), 
-        guard(guard),
+        head(head),
         Gb(Gb) {}
     
     GraphType getGraphType() const override {
@@ -198,7 +198,7 @@ public:
     shared_ptr<Loop> createLoop(std::shared_ptr<BasicGraph> BG, 
         llvm::BasicBlock* startBB, llvm::BasicBlock* endBB = nullptr);
 
-    shared_ptr<BasicGraph> getLoopGuardGraph(shared_ptr<Symbol> initCount, llvm::Loop* loop);
+    shared_ptr<BasicGraph> getLoopHeadGraph(shared_ptr<Symbol> initCount, llvm::Loop* loop);
     shared_ptr<Symbol> getLoopCount(llvm::Loop* loop);
 
 
