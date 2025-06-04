@@ -56,7 +56,7 @@ int main(int argc, char **argv) {
     FAM.registerPass([&] { return LoopAnalysis(); });
     FAM.registerPass([&] { return PostDominatorTreeAnalysis(); });
 
-    FPM.addPass(PromotePass());
+    // FPM.addPass(PromotePass());
 
     Function *TargetFunc = M->getFunction(FunctionName);
     if (!TargetFunc || TargetFunc->isDeclaration()) {

@@ -317,7 +317,7 @@ shared_ptr<Symbol> GraphBuilder::getLoopCount(llvm::Loop* loop){
     if (llvm::isa<llvm::SCEVCouldNotCompute>(backedgeCount)) {
         llvm::errs() << "Warning: getLoopCount: Could not compute backedge count for loop " << getName(loop) << "\n";
         // Fallback to symbolic name
-        auto loopCount_literal = "loop_count_" + getName(loop);
+        auto loopCount_literal = "LC_" + getName(loop);
         return make_shared<Symbol>(loopCount_literal);
     }
 
