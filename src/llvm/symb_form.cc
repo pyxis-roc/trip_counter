@@ -3,8 +3,11 @@
 #include "utils.hpp"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"
+#include "llvm/Support/raw_ostream.h"
+#include <cstddef>
 #include <llvm/IR/BasicBlock.h>
 #include <memory>
+#include <random>
 #include <string>
 #include <tuple>
 
@@ -31,7 +34,8 @@ shared_ptr<Graph> GraphBuilder::createGraph(shared_ptr<Symbol> initCount,
 
     auto blockID = getBlockID(startBB);
     auto graph = make_shared<Graph>(blockID);
-    auto nextHead = nextGraphHead(startBB, endBB);
+    auto nextType = getGraphType(startBB, endBB);
+    auto nextHead = nextGraphHead(nextType, startBB);
 
     auto BG = createBasicGraph(initCount, startBB, nextHead);
     graph->BG = BG;
@@ -41,25 +45,47 @@ shared_ptr<Graph> GraphBuilder::createGraph(shared_ptr<Symbol> initCount,
     return graph;
 }
 
-llvm::BasicBlock* GraphBuilder::nextGraphHead(llvm::BasicBlock* startBB, llvm::BasicBlock* endBB){
+llvm::BasicBlock* GraphBuilder::nextGraphHead(GraphType type, llvm::BasicBlock* startBB){
     
-    switch (getGraphType(startBB, endBB)) {
+    switch (type) {
         
         case GraphType::BasicBlock:{
-            // there are two cases, one is simple basic block, the other is a loop header
-            if (LI.isLoopHeader(startBB)) {
-                auto loop = LI.getLoopFor(startBB);
-                for (auto *succ : llvm::successors(startBB)) {
-                    if (loop->contains(succ)) {
-                        return succ;
-                    }
-                }
-                llvm::errs() << "Error: GraphBuilder::nextGraphHead: No successor of loop header is inside the loop\n";
+            if(startBB->getTerminator()->getNumSuccessors() == 0){
                 return nullptr;
             }
-            else{
+            if (startBB->getTerminator()->getNumSuccessors() == 1) {
                 return startBB->getSingleSuccessor();
             }
+            if (startBB->getTerminator()->getNumSuccessors() == 2 && LI.getLoopFor(startBB)){ 
+                //case 1: loop exit
+                if (LI.getLoopFor(startBB)->isLoopExiting(startBB)){
+                    // if it is a loop exit, return the successor that is outside the loop
+                    auto loop = LI.getLoopFor(startBB);
+                    auto succ0 = startBB->getTerminator()->getSuccessor(0);
+                    auto succ1 = startBB->getTerminator()->getSuccessor(1);
+                    if (!loop->contains(succ0)) {
+                        return succ0;
+                    } else {
+                        return succ1;
+                    }
+                }
+                //case 2: loop latch
+                else if (LI.getLoopFor(startBB)->isLoopLatch(startBB)){
+                    // if it is a loop latch, return the successor that is the loop header
+                    auto loopHeader = LI.getLoopFor(startBB)->getHeader();
+                    auto succ0 = startBB->getTerminator()->getSuccessor(0);
+                    auto succ1 = startBB->getTerminator()->getSuccessor(1);
+                    if (succ0 == loopHeader) {
+                        return succ0;
+                    } else {
+                        return succ1;
+                    }
+                }
+            }
+            // If none of the above, return nullptr (no next head)
+            llvm::errs() << "Error: GraphBuilder::nextGraphHead: Unsupported number of successors for basic block " 
+                 << getName(startBB) << ": " << startBB->getTerminator()->getNumSuccessors() << "\n";
+            return nullptr;
         }
 
 
@@ -113,13 +139,16 @@ shared_ptr<BasicGraph> GraphBuilder::createBasicGraph(std::shared_ptr<Symbol> co
     auto name = getName(startBB);
     auto BG = std::make_shared<BasicGraph>(blockID, name, count);
 
-    switch (getGraphType(startBB, endBB)) {
+    auto type = getGraphType(startBB, endBB);
+    auto nextHead = nextGraphHead(type, startBB);
+
+    switch (type) {
         case GraphType::BasicBlock:
-            return createBasicBlock(BG, startBB, endBB);
+            return createBasicBlock(BG, startBB, nextHead);
         case GraphType::Branch:
-            return createBranch(BG, startBB, endBB);
+            return createBranch(BG, startBB, nextHead);
         case GraphType::Loop:
-            return createLoop(BG, startBB, endBB);
+            return createLoop(BG, startBB, nextHead);
         default:
             llvm::errs() << "Error: GraphBuilder::createBasicGraph: Unknown graph type for block " << name << "\n";
             return nullptr;
@@ -132,14 +161,39 @@ GraphType GraphBuilder::getGraphType(llvm::BasicBlock* startBB, llvm::BasicBlock
     if(LI.isLoopHeader(startBB)){
         auto loop = LI.getLoopFor(startBB);
         
+        // case 1: when current loop is a subgraph of a larger graph
         if(!loop->contains(endBB)){
             return GraphType::Loop;
         }
+        // case 2: inside a loop, we are looking for the inside subgraph
+        // either it is a basic block or a branch
+        if (startBB->getTerminator()->getNumSuccessors() < 2) {
+            // no successors, it is a basic block
+            return GraphType::BasicBlock;
+        }
+
+        if (startBB->getTerminator()->getNumSuccessors() == 2) {
+            auto succ0 = startBB->getTerminator()->getSuccessor(0);
+            auto succ1 = startBB->getTerminator()->getSuccessor(1);
+            bool succ0InLoop = loop->contains(succ0);
+            bool succ1InLoop = loop->contains(succ1);
+
+            // If either successor is outside the loop, it's a loop exit (basic block)
+            if (!succ0InLoop || !succ1InLoop) {
+                return GraphType::BasicBlock;
+            }
+            // Both successors are inside the loop, it's a branch
+            return GraphType::Branch;
+        }
+        
+        llvm::errs() << "Error: GraphBuilder::getGraphType: Unsupported number of successors for loop header block " 
+                 << getName(startBB) << ": " << startBB->getTerminator()->getNumSuccessors() << "\n";
+        return GraphType::Unknown;
         
     }
 
     // cannot be a loop graph, check for basic block or branch graph
-    if (startBB->getTerminator()->getNumSuccessors() <= 1) {
+    if (startBB->getTerminator()->getNumSuccessors() < 2) {
         return GraphType::BasicBlock;
     }
 
@@ -197,32 +251,6 @@ shared_ptr<Branch> GraphBuilder::createBranch(std::shared_ptr<BasicGraph> BG,
     );
 }
 
-shared_ptr<BasicGraph> GraphBuilder::getLoopHeadGraph(shared_ptr<Symbol> initCount, llvm::Loop* loop) {
-    auto bodyCount = getLoopCount(loop);
-
-    if (!loop) {
-        llvm::errs() << "Error: getLoopHead: Loop is null\n";
-        return nullptr;
-    }
-
-    auto BG = make_shared<BasicGraph>(
-        getBlockID(loop->getHeader()), 
-        getName(loop->getHeader())
-    );
-
-    if (loop->isLoopExiting(loop->getHeader())){
-        // header exiting, header count = backedge count + 1, body count = backedge count
-        BG->count = bodyCount->addOne()->multiply(initCount);
-    }
-    else{
-        // tail exiting, both header and body count = backedge count + 1
-        BG->count = bodyCount->multiply(initCount);
-    }
-
-    auto BB = createBasicBlock(BG, loop->getHeader());
-    return BB;
-}
-
 // get the start and end blocks of the loop body 
 tuple<llvm::BasicBlock*, llvm::BasicBlock*> getLoopBody(llvm::Loop* loop){
     if (!loop) {
@@ -262,25 +290,109 @@ tuple<llvm::BasicBlock*, llvm::BasicBlock*> getLoopBody(llvm::Loop* loop){
     
 }
 
+GraphType GraphBuilder::getLoopHeadType(llvm::BasicBlock* startBB, llvm::BasicBlock* endBB){
+    // distinguish from basic block and branch
+
+    if (startBB->getTerminator()->getNumSuccessors() < 2) {
+        return GraphType::BasicBlock;
+    }
+
+    if (startBB->getTerminator()->getNumSuccessors() == 2) {
+        // can be due to if statement (target) or a loop (latch or exit)
+        
+        if (auto loop = LI.getLoopFor(startBB)) {
+            if (loop->isLoopLatch(startBB) || loop->isLoopExiting(startBB)){
+                return GraphType::BasicBlock;
+            }
+        }
+        // not inside a loop, then it is a branch graph
+        return GraphType::Branch;
+    }
+    
+    llvm::errs() << "Error: GraphBuilder::getGraphType: Unsupported number of successors for block " 
+                 << getName(startBB) << ": " << startBB->getTerminator()->getNumSuccessors() << "\n";
+    return GraphType::Unknown;
+}
+
+shared_ptr<BasicGraph> GraphBuilder::getLoopHeadGraph(shared_ptr<Symbol> initCount, 
+        llvm::BasicBlock* startBB, llvm::BasicBlock* endBB){
+    
+    auto loop = LI.getLoopFor(startBB);
+    if (!loop){
+        llvm::errs() << "Error: GraphBuilder::getLoopHeadGraph: it is not a loop\n";
+        return nullptr;
+    }
+
+    auto bodyCount = getLoopCount(loop);
+    shared_ptr<Symbol> count;
+    if(loop->isLoopExiting(loop->getHeader())){
+        // header exiting, header is executed one more time than body
+        count = bodyCount->addOne()->multiply(initCount);
+    }
+    else{
+        // tail exiting, both header and body execute the same time
+        count = bodyCount->multiply(initCount);
+    }
+
+    auto BG = make_shared<BasicGraph>(
+        getBlockID(startBB),
+        getName(startBB),
+        count
+    );
+
+    auto headType = getLoopHeadType(startBB, endBB);
+    auto nextHead = nextGraphHead(headType, startBB);
+
+    switch (headType) {
+        
+        case GraphType::BasicBlock: {
+            return createBasicBlock(BG, startBB, nextHead);
+        }
+
+        case GraphType::Branch: {
+            return createBranch(BG, startBB, nextHead);
+        }
+
+        default:{
+            llvm::errs() << "Error: GraphBuilder::getLoopHeadGraph: Unknown graph type for loop header block " 
+                         << getName(startBB) << "\n";
+            return nullptr;
+        }
+    }
+}
+
 shared_ptr<Loop> GraphBuilder::createLoop(std::shared_ptr<BasicGraph> BG, 
         llvm::BasicBlock* startBB, llvm::BasicBlock* endBB){
 
     if (!startBB || startBB == endBB) return nullptr;
 
     auto loop = LI.getLoopFor(startBB);
-    auto incoming_count = BG->count;
-    auto loopCount = getLoopCount(loop);
-    auto [bodyStart, bodyEnd] = getLoopBody(loop);
+    if (!loop) {
+        llvm::errs() << "Error: createLoop: Loop is null for block " << getName(startBB) << "\n";
+        return nullptr;
+    }
 
-    auto head = getLoopHeadGraph(incoming_count, loop);
-    auto Gb = createGraph(loopCount->multiply(incoming_count), 
-        bodyStart, bodyEnd);
+    auto exitBlock = loop->getExitBlock();
+    if (!exitBlock) {
+        llvm::errs() << "Error: createLoop: Loop has multiple or zero exit blocks\n";
+        return nullptr;
+    }
+
+    auto incoming_count = BG->count;
+    
+    auto headGraph = getLoopHeadGraph(incoming_count, startBB, exitBlock);
+    auto headType = headGraph->getGraphType();
+
+    auto bodyStart = nextGraphHead(headType, startBB);
+    auto bodyCount = getLoopCount(loop);
+    auto Gb = createGraph(bodyCount->multiply(incoming_count), 
+    bodyStart, exitBlock);
     
     return make_shared<Loop>(
         Loop(
             BG, 
-            loopCount, 
-            head,
+            bodyCount, 
+            headGraph,
             Gb
         )
     );
@@ -401,7 +513,6 @@ void GraphViewer::showBranch(shared_ptr<Branch> BR, std::ostream& os, int indent
 
     os << pad << "Branch: " << BR->name << "\n";
     os << pad << "True Ratio: " << BR->trueRatio->literal << "\n";
-    os << pad << "False Ratio: " << BR->falseRatio->literal << "\n";
     os << pad << "True Side Graph:\n";
     showGraph(BR->G1, os, indent + 2);
     os << pad << "False Side Graph:\n";

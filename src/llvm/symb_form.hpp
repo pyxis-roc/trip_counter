@@ -175,11 +175,14 @@ public:
     shared_ptr<Program> createProgram(llvm::Function*);
 
     // create a graph rooted at BB
+    //     startBB: the starting basic block of the graph 
+    //     endBB: the (first) basic block that is not included in the graph,
+    //            it can be nullptr, which means the graph goes freely without constraint
     shared_ptr<Graph> createGraph(shared_ptr<Symbol> initCount, 
         llvm::BasicBlock* startBB, llvm::BasicBlock* endBB = nullptr);
 
-    // reduce the basic graph, then find the next graph head
-    llvm::BasicBlock* nextGraphHead(llvm::BasicBlock* startBB, llvm::BasicBlock* endBB = nullptr);
+    // reduce the first basic graph, then find the next graph head
+    llvm::BasicBlock* nextGraphHead(GraphType type, llvm::BasicBlock* startBB);
 
     // instantiate basic graph to a specific subgraphs
     shared_ptr<BasicGraph> createBasicGraph(shared_ptr<Symbol> initCount, 
@@ -198,7 +201,12 @@ public:
     shared_ptr<Loop> createLoop(std::shared_ptr<BasicGraph> BG, 
         llvm::BasicBlock* startBB, llvm::BasicBlock* endBB = nullptr);
 
-    shared_ptr<BasicGraph> getLoopHeadGraph(shared_ptr<Symbol> initCount, llvm::Loop* loop);
+    // create a loop head graph, which is a basic graph that contains the loop head
+    GraphType getLoopHeadType(llvm::BasicBlock* startBB, llvm::BasicBlock* endBB);
+    
+    shared_ptr<BasicGraph> getLoopHeadGraph(shared_ptr<Symbol> initCount, 
+        llvm::BasicBlock* startBB, llvm::BasicBlock* endBB = nullptr);
+
     shared_ptr<Symbol> getLoopCount(llvm::Loop* loop);
 
 
