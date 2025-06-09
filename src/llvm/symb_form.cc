@@ -59,14 +59,21 @@ llvm::BasicBlock* GraphBuilder::nextGraphHead(GraphType type, llvm::BasicBlock* 
             if (startBB->getTerminator()->getNumSuccessors() == 2 && LI.getLoopFor(startBB)){ 
                 //case 1: loop exit
                 if (LI.getLoopFor(startBB)->isLoopExiting(startBB)){
+
                     // if it is a loop exit, return the successor that is outside the loop
                     auto loop = LI.getLoopFor(startBB);
                     auto succ0 = startBB->getTerminator()->getSuccessor(0);
                     auto succ1 = startBB->getTerminator()->getSuccessor(1);
-                    if (!loop->contains(succ0)) {
-                        return succ0;
-                    } else {
-                        return succ1;
+                    auto internalSucc = (loop->contains(succ0)) ? succ0 : succ1;
+                    auto externalSucc = (loop->contains(succ0)) ? succ1 : succ0;
+
+                    if (LI.isLoopHeader(startBB) && internalSucc != startBB) {
+                        // header exiting, return the successor that is inside the loop
+                        return internalSucc;
+                    }
+                    else{
+                        // tail exiting, return the successor that is outside the loop
+                        return externalSucc;
                     }
                 }
                 //case 2: loop latch
@@ -325,7 +332,7 @@ shared_ptr<BasicGraph> GraphBuilder::getLoopHeadGraph(shared_ptr<Symbol> initCou
 
     auto bodyCount = getLoopCount(loop);
     shared_ptr<Symbol> count;
-    if(loop->isLoopExiting(loop->getHeader())){
+    if(isHeaderExiting(loop)){
         // header exiting, header is executed one more time than body
         count = bodyCount->addOne()->multiply(initCount);
     }
@@ -384,9 +391,10 @@ shared_ptr<Loop> GraphBuilder::createLoop(std::shared_ptr<BasicGraph> BG,
     auto headType = headGraph->getGraphType();
 
     auto bodyStart = nextGraphHead(headType, startBB);
+    auto bodyEnd = isHeaderExiting(loop) ? startBB : exitBlock;
     auto bodyCount = getLoopCount(loop);
     auto Gb = createGraph(bodyCount->multiply(incoming_count), 
-    bodyStart, exitBlock);
+    bodyStart, bodyEnd);
     
     return make_shared<Loop>(
         Loop(

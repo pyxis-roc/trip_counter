@@ -209,6 +209,12 @@ public:
 
     shared_ptr<Symbol> getLoopCount(llvm::Loop* loop);
 
+    bool isHeaderExiting(llvm::Loop* loop){
+        return loop->isLoopExiting(loop->getHeader());
+    }
+    bool isTailExiting(llvm::Loop* loop){
+        return !loop->isLoopExiting(loop->getHeader());
+    }
 
     // some utility functions
     
