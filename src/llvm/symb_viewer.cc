@@ -19,6 +19,7 @@
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <memory>
+#include <fstream>
 #include "llvm/Transforms/Utils/Mem2Reg.h"
 
 using namespace llvm;
@@ -26,8 +27,31 @@ using namespace llvm;
 static cl::opt<std::string> InputFilename(cl::Positional, cl::desc("<input LLVM IR file>"), cl::Required);
 static cl::opt<std::string> FunctionName(cl::Positional, cl::desc("<function name to analyze>"), 
     cl::Required, cl::value_desc("function name"));
+static cl::opt<std::string> OutputJsonFilename(
+    "json",
+    cl::desc("Output symbolic form as JSON to the specified file"),
+    cl::value_desc("filename"),
+    cl::init("")
+);
+llvm::cl::opt<bool> Help("h", llvm::cl::desc("Print help message"));
+
+void printHelpMessage() {
+    llvm::outs() << "Usage: symb_viewer <input LLVM IR file> <function name to analyze> [options]\n";
+    llvm::outs() << "Options:\n";
+    llvm::outs() << "  -json=<filename>   Output symbolic form as JSON to the specified file\n";
+    llvm::outs() << "  -h                 Print help message\n";
+    llvm::outs() << "\n";
+    llvm::outs() << "Example:\n";
+    llvm::outs() << "  symb_viewer input.ll my_function -json=output.json\n";
+}
+
 
 int main(int argc, char **argv) {
+    if (argc < 3 || Help) {
+        printHelpMessage();
+        return 0;
+    }
+
     InitLLVM X(argc, argv);
     cl::ParseCommandLineOptions(argc, argv, "LLVM IR Loop/PDom/SE Analysis\n");
 
@@ -75,7 +99,6 @@ int main(int argc, char **argv) {
     // Post Dominator Analysis
     auto &PDT = FAM.getResult<PostDominatorTreeAnalysis>(*TargetFunc);
 
-
     // build symbolic form for the function
     auto GB = GraphBuilder(LI, PDT, SE);
     auto program = GB.createProgram(TargetFunc);
@@ -84,8 +107,13 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    // show the symbolic form 
-    GraphViewer::showProgram(program);
+    // show the symbolic form or output as JSON
+    if (!OutputJsonFilename.empty()) {
+        std::ofstream jsonOut(OutputJsonFilename);
+        GraphViewer::showAllBasicGraphsAsJson(program, jsonOut);
+    } else {
+        GraphViewer::showProgram(program);
+    }
 
     return 0;
 }

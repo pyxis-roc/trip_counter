@@ -70,5 +70,5 @@ target_compile_definitions(symCount PRIVATE IR_PLUGIN_PATH="${PROJECT_SOURCE_DIR
 target_include_directories(symCount PUBLIC "${PROJECT_SOURCE_DIR}")
 target_link_libraries(symCount LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis nlohmann_json::nlohmann_json)
 target_link_libraries(instr-count LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis nlohmann_json::nlohmann_json)
-target_link_libraries(symb-viewer LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis)
+target_link_libraries(symb-viewer LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis nlohmann_json::nlohmann_json)
 install(TARGETS symCount instr-count symb-viewer DESTINATION bin)

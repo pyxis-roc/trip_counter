@@ -1,15 +1,16 @@
 #include "symb_form.hpp"
+#include "nlohmann/json_fwd.hpp"
 #include "printer.hpp"
 #include "utils.hpp"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Support/raw_ostream.h"
-#include <cstddef>
 #include <llvm/IR/BasicBlock.h>
 #include <memory>
-#include <random>
 #include <string>
 #include <tuple>
+#include <queue>
+#include <unordered_set>
 
 
 shared_ptr<Program> GraphBuilder::createProgram(llvm::Function * F){
@@ -57,6 +58,7 @@ llvm::BasicBlock* GraphBuilder::nextGraphHead(GraphType type, llvm::BasicBlock* 
                 return startBB->getSingleSuccessor();
             }
             if (startBB->getTerminator()->getNumSuccessors() == 2 && LI.getLoopFor(startBB)){ 
+                //special case for loop internal blocks
                 //case 1: loop exit
                 if (LI.getLoopFor(startBB)->isLoopExiting(startBB)){
 
@@ -72,21 +74,14 @@ llvm::BasicBlock* GraphBuilder::nextGraphHead(GraphType type, llvm::BasicBlock* 
                         return internalSucc;
                     }
                     else{
-                        // tail exiting, return the successor that is outside the loop
-                        return externalSucc;
+                        // end of loop, there is no following internal graph 
+                        return nullptr;
                     }
                 }
                 //case 2: loop latch
-                else if (LI.getLoopFor(startBB)->isLoopLatch(startBB)){
-                    // if it is a loop latch, return the successor that is the loop header
-                    auto loopHeader = LI.getLoopFor(startBB)->getHeader();
-                    auto succ0 = startBB->getTerminator()->getSuccessor(0);
-                    auto succ1 = startBB->getTerminator()->getSuccessor(1);
-                    if (succ0 == loopHeader) {
-                        return succ0;
-                    } else {
-                        return succ1;
-                    }
+                else{
+                    llvm::errs() << "Error: GraphBuilder::nextGraphHead: unsupported case for loop multi-succ, non-exit block" 
+                         << getName(startBB) << " has two successors, which is not supported\n";
                 }
             }
             // If none of the above, return nullptr (no next head)
@@ -570,4 +565,248 @@ std::string GraphBuilder::getName(llvm::Loop* loop) {
     llvm::raw_string_ostream rso(name);
     loop->getHeader()->printAsOperand(rso, false);
     return rso.str();
+}
+
+void GraphViewer::showProgramAsJson(shared_ptr<Program> program, std::ostream& os) {
+    if (!program) {
+        os << "{}\n";
+        return;
+    }
+    
+    nlohmann::json j;
+    j["inputs"] = nlohmann::json::array();
+    for (const auto& input : program->inputs) {
+        j["inputs"].push_back(input->literal);
+    }
+
+    j["graph"] = program->G ? GraphViewer::graphToJson(program->G) : nlohmann::json::object();
+
+    os << j.dump(4) << "\n";
+}
+
+void GraphViewer::showGraphAsJson(shared_ptr<Graph> G, std::ostream& os) {
+    if (!G) {
+        os << "{}\n";
+        return;
+    }
+
+    nlohmann::json j = graphToJson(G);
+    os << j.dump(4) << "\n";
+}
+
+void GraphViewer::showBasicGraphAsJson(shared_ptr<BasicGraph> BG, std::ostream& os) {
+    if (!BG) {
+        os << "{}\n";
+        return;
+    }
+
+    nlohmann::json j = basicGraphToJson(BG);
+    os << j.dump(4) << "\n";
+}
+
+void GraphViewer::showBasicBlockAsJson(shared_ptr<BasicBlock> BB, std::ostream& os) {
+    if (!BB) {
+        os << "{}\n";
+        return;
+    }
+    
+    nlohmann::json j = basicBlockToJson(BB);
+    os << j.dump(4) << "\n";
+}
+
+void GraphViewer::showBranchAsJson(shared_ptr<Branch> BR, std::ostream& os) {
+    if (!BR) {
+        os << "{}\n";
+        return;
+    }
+
+    nlohmann::json j = branchToJson(BR);
+    os << j.dump(4) << "\n";
+}
+
+void GraphViewer::showLoopAsJson(shared_ptr<Loop> L, std::ostream& os) {
+    if (!L) {
+        os << "{}\n";
+        return;
+    }
+
+    nlohmann::json j = loopToJson(L);
+    os << j.dump(4) << "\n";
+}
+
+
+void GraphViewer::showAllBasicGraphsAsJson(shared_ptr<Program> program, std::ostream& os) {
+    if (!program || !program->G) {
+        os << "{}\n";
+        return;
+    }
+
+    std::vector<shared_ptr<BasicGraph>> allBasicGraphs;
+    getAllBasicGraphs(program, allBasicGraphs);
+    if (allBasicGraphs.empty()) {
+        os << "{}\n";
+        return;
+    }
+
+    nlohmann::json j;
+    j["basic_graphs"] = nlohmann::json::array();
+    for (const auto& bg : allBasicGraphs) {
+        if (bg) {
+            j["basic_graphs"].push_back(basicGraphToJson(bg));
+        }
+    }
+    os << j.dump(4) << "\n";
+}
+
+nlohmann::json GraphViewer::programToJson(shared_ptr<Program> program) {
+    nlohmann::json j;
+    if (!program) {
+        return j; // return empty json
+    }
+
+    j["inputs"] = nlohmann::json::array();
+    for (const auto& input : program->inputs) {
+        j["inputs"].push_back(input->literal);
+    }
+
+    j["graph"] = program->G ? graphToJson(program->G) : nlohmann::json::object();
+
+    return j;
+}
+
+nlohmann::json GraphViewer::graphToJson(shared_ptr<Graph> G) {
+    nlohmann::json j;
+    if (!G) {
+        return j; // return empty json
+    }
+
+    j["id"] = G->id;
+    j["basic_graph"] = basicGraphToJson(G->BG);
+    j["next_graph"] = G->G ? graphToJson(G->G) : nlohmann::json::object();
+
+    return j;
+}
+
+nlohmann::json GraphViewer::basicGraphToJson(shared_ptr<BasicGraph> BG) {
+    nlohmann::json j;
+    if (!BG) {
+        return j; // return empty json
+    }
+
+    j["id"] = BG->id;
+    j["name"] = BG->name;
+    j["count"] = BG->count ? BG->count->literal : "N/A";
+    // Map GraphType enum to string for JSON output
+    switch (BG->getGraphType()) {
+        case GraphType::BasicBlock:
+            j["graph_type"] = "BasicBlock";
+            break;
+        case GraphType::Branch:
+            j["graph_type"] = "Branch";
+            break;
+        case GraphType::Loop:
+            j["graph_type"] = "Loop";
+            break;
+        default:
+            j["graph_type"] = "Unknown";
+            break;
+    }
+
+    return j;
+}
+
+nlohmann::json GraphViewer::basicBlockToJson(shared_ptr<BasicBlock> BB) {
+    nlohmann::json j;
+    if (!BB) {
+        return j; // return empty json
+    }
+
+    j["id"] = BB->id;
+    j["name"] = BB->name;
+    j["count"] = BB->count ? BB->count->literal : "N/A";
+    j["graph_type"] = "BasicBlock";
+
+    return j;
+}
+
+nlohmann::json GraphViewer::branchToJson(shared_ptr<Branch> BR) {
+    nlohmann::json j;
+    if (!BR) {
+        return j; // return empty json
+    }
+
+    j["id"] = BR->id;
+    j["name"] = BR->name;
+    j["true_ratio"] = BR->trueRatio ? BR->trueRatio->literal : "N/A";
+    j["false_ratio"] = BR->falseRatio ? BR->falseRatio->literal : "N/A";
+    j["G1"] = BR->G1 ? graphToJson(BR->G1) : nlohmann::json::object();
+    j["G2"] = BR->G2 ? graphToJson(BR->G2) : nlohmann::json::object();
+    j["graph_type"] = "Branch";
+
+    return j;
+}
+
+nlohmann::json GraphViewer::loopToJson(shared_ptr<Loop> L) {
+    nlohmann::json j;
+    if (!L) {
+        return j; // return empty json
+    }
+
+    j["id"] = L->id;
+    j["name"] = L->name;
+    j["loop_count"] = L->loopCount ? L->loopCount->literal : "N/A";
+    j["head"] = basicGraphToJson(L->head);
+    j["Gb"] = L->Gb ? graphToJson(L->Gb) : nlohmann::json::object();
+    j["graph_type"] = "Loop";
+
+    return j;
+}
+
+void GraphViewer::getAllBasicGraphs(shared_ptr<Program> P, std::vector<shared_ptr<BasicGraph>>& collection) {
+    if (!P || !P->G) return;
+
+    getAllBasicGraphs(P->G, collection);
+}
+
+void GraphViewer::getAllBasicGraphs(shared_ptr<Graph> G,vector<shared_ptr<BasicGraph>>& collection) {
+    if (!G->BG) return;
+
+    GraphViewer::getAllBasicGraphs(G->BG, collection);
+    if (G->G) {
+        GraphViewer::getAllBasicGraphs(G->G, collection);
+    }
+}
+
+void GraphViewer::getAllBasicGraphs(shared_ptr<BasicGraph> BG, vector<shared_ptr<BasicGraph>>& collection) {
+    switch (BG->getGraphType()) {
+        case GraphType::BasicBlock: {
+            collection.push_back(BG);
+            break;
+        }
+        case GraphType::Branch: {
+            auto branch = static_pointer_cast<Branch>(BG);
+            collection.push_back(branch);
+            if (branch->G1) {
+                getAllBasicGraphs(branch->G1, collection);
+            }
+            if (branch->G2) {
+                getAllBasicGraphs(branch->G2, collection);
+            }
+            break;
+        }
+        case GraphType::Loop: {
+            auto loop = static_pointer_cast<Loop>(BG);
+            collection.push_back(loop);
+            if (loop->head) {
+                getAllBasicGraphs(loop->head, collection);
+            }
+            if (loop->Gb) {
+                getAllBasicGraphs(loop->Gb, collection);
+            }
+            break;
+        }
+        default:
+            llvm::errs() << "Error: GraphViewer::getAllBasicGraphs: Unknown graph type for BasicGraph: " << BG->id << "\n";
+    
+    }
 }

@@ -7,6 +7,8 @@
         from a llvm control flow graph    
 */
 
+#pragma once
+
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Function.h"
@@ -14,6 +16,8 @@
 #include <string>
 #include <vector>
 #include <iostream>
+#include <nlohmann/json.hpp>
+
 
 using namespace std;
 
@@ -24,13 +28,13 @@ public:
     Symbol(string literal) : literal(literal) {}
 
     shared_ptr<Symbol> multiply(const shared_ptr<Symbol>& other) const {
-        return make_shared<Symbol>("(" + literal + " * " + other->literal + ")");
+        return make_shared<Symbol>("scMul(" + literal + ", " + other->literal + ")");
     }
     shared_ptr<Symbol> add(const shared_ptr<Symbol>& other) const {
-        return make_shared<Symbol>("(" + literal + " + " + other->literal + ")");
+        return make_shared<Symbol>("scAdd(" + literal + ", " + other->literal + ")");
     }
     shared_ptr<Symbol> addOne() const {
-        return make_shared<Symbol>("(" + literal + " + 1)");
+        return make_shared<Symbol>("scAdd(" + literal + ", 1)");
     }
 
     void show(std::ostream& os = std::cout) const {
@@ -39,6 +43,7 @@ public:
 };
 
 class Graph;
+class BasicGraph;
 
 class Program{
 public:
@@ -47,7 +52,7 @@ public:
 
     Program(vector<shared_ptr<Symbol>> inputs, shared_ptr<Graph> G)
         : inputs(inputs), G(G) {}
-    
+        
 };
 
 /*
@@ -73,7 +78,7 @@ public:
         : id(id), BG(BG), G(nullptr) {}
     Graph(std::string id)
         : id(id), BG(nullptr), G(nullptr) {}
-
+    
 };
 
 
@@ -231,4 +236,24 @@ public:
     static void showBasicBlock(shared_ptr<BasicBlock> BB, std::ostream& os = std::cout, int indent = 0);
     static void showBranch(shared_ptr<Branch> BR, std::ostream& os = std::cout, int indent = 0);
     static void showLoop(shared_ptr<Loop> L, std::ostream& os = std::cout, int indent = 0);
+
+    static void showProgramAsJson(shared_ptr<Program> program, std::ostream& os = std::cout);
+    static void showGraphAsJson(shared_ptr<Graph> G, std::ostream& os = std::cout);
+    static void showBasicGraphAsJson(shared_ptr<BasicGraph> BG, std::ostream& os = std::cout);
+    static void showBasicBlockAsJson(shared_ptr<BasicBlock> BB, std::ostream& os = std::cout);
+    static void showBranchAsJson(shared_ptr<Branch> BR, std::ostream& os = std::cout);
+    static void showLoopAsJson(shared_ptr<Loop> L, std::ostream& os = std::cout);
+
+    static void getAllBasicGraphs(shared_ptr<Program> program, std::vector<shared_ptr<BasicGraph>>& collection);
+    static void getAllBasicGraphs(shared_ptr<Graph> G, std::vector<shared_ptr<BasicGraph>>& collection);
+    static void getAllBasicGraphs(shared_ptr<BasicGraph> BG, std::vector<shared_ptr<BasicGraph>>& collection);
+
+    static void showAllBasicGraphsAsJson(shared_ptr<Program> program, std::ostream& os = std::cout);
+
+    static nlohmann::json programToJson(shared_ptr<Program> program);
+    static nlohmann::json graphToJson(shared_ptr<Graph> G);
+    static nlohmann::json basicGraphToJson(shared_ptr<BasicGraph> BG);
+    static nlohmann::json basicBlockToJson(shared_ptr<BasicBlock> BB);
+    static nlohmann::json branchToJson(shared_ptr<Branch> BR);
+    static nlohmann::json loopToJson(shared_ptr<Loop> L);
 };
