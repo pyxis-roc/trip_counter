@@ -9,8 +9,6 @@
 #include <memory>
 #include <string>
 #include <tuple>
-#include <queue>
-#include <unordered_set>
 
 
 shared_ptr<Program> GraphBuilder::createProgram(llvm::Function * F){
@@ -649,6 +647,10 @@ void GraphViewer::showAllBasicGraphsAsJson(shared_ptr<Program> program, std::ost
     }
 
     nlohmann::json j;
+    j["args"] = nlohmann::json::array();
+    for (const auto& input : program->inputs) {
+        j["args"].push_back(input->literal);
+    }
     j["basic_graphs"] = nlohmann::json::array();
     for (const auto& bg : allBasicGraphs) {
         if (bg) {

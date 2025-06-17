@@ -127,7 +127,7 @@ void Debug::printExpanded(Value* I, llvm::raw_ostream &os, v_set keep_unexpanded
     //expand cases
     if(Instruction* i = dyn_cast<Instruction>(I)){
         if (i->getOpcode() == Instruction::PHI){
-            i->print(os);
+            i->printAsOperand(os, false);
             return;
         }
         os << "(";
