@@ -69,8 +69,8 @@ def symb_eval(args_values, basic_graphs):
     subs = []
     for arg_name, value in zip(args, args_values):
         # parse_symb_count should have created z3 variables with the same names as in args
-        sym = Real(arg_name)
-        subs.append((sym, RealVal(value)))
+        sym = Int(arg_name)
+        subs.append((sym, IntVal(value)))
 
     EvaluatedGraph = namedtuple('EvaluatedGraph', ['name', 'id', 'simplified_count', 'original_count', 'graph_type'])
 
@@ -101,25 +101,34 @@ if __name__ == "__main__":
 
     if args.args:
         evaluated = symb_eval(args.args, parsed)
-        print("\nSubstitution Values:")
-        for name, value in zip(parsed.args, args.args):
-            print(f"  {name} = {value}")
-        print("\nEvaluated Counts:")
-        for graph in evaluated:
-            print(f"  Name: {graph.name}")
-            print(f"    Original Count: {graph.original_count}")
-            print(f"    Evaluated Count: {graph.simplified_count}")
-            print()
-        
+        # Prepare output in the same format as input, but with original args names and a new field for concrete values
+        output = {
+            "args": parsed.args,
+            "concrete_args": args.args,
+            "basic_graphs": [
+            {
+                "count": str(graph.simplified_count),
+                "original_count": str(graph.original_count),
+                "graph_type": graph.graph_type,
+                "id": graph.id,
+                "name": graph.name
+            }
+            for graph in evaluated
+            ]
+        }
+        print(json.dumps(output, indent=4))
     else:
-        print("Arguments:")
-        for i, arg in enumerate(parsed.args):
-            print(f"  [{i}] {arg}")
-        print("\nBasic Graphs:")
-        for graph in parsed.basic_graphs:
-            print(f"  Name: {graph.name}")
-            print(f"    ID: {graph.id}")
-            print(f"    Type: {graph.graph_type}")
-            print(f"    Count: {graph.count}")
-            print(f"    Z3 Expr: {graph.z3_expr}")
-            print()
+        # Print the input format as before, but with symbolic args
+        output = {
+            "args": parsed.args,
+            "basic_graphs": [
+            {
+                "count": graph.count,
+                "graph_type": graph.graph_type,
+                "id": graph.id,
+                "name": graph.name
+            }
+            for graph in parsed.basic_graphs
+            ]
+        }
+        print(json.dumps(output, indent=4))

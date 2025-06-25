@@ -3,7 +3,7 @@ from z3 import *
 import unittest
 
 # Helper: parse variable names and assign BitVecs
-def get_var(varname, var_map):
+def get_int_var(varname, var_map):
     if varname not in var_map:
         var_map[varname] = Int(varname)
     return var_map[varname]
@@ -22,7 +22,7 @@ def parse_symb_count(expr, var_map=None):
 
     # Handle integer constants
     if re.fullmatch(r'-?\d+', expr):
-        return RealVal(int(expr))
+        return IntVal(int(expr))
 
     # Handle parenthesis
     if expr.startswith('(') and expr.endswith(')'):
@@ -68,6 +68,15 @@ def parse_symb_count(expr, var_map=None):
         # ignore for now
         return arg
 
+    # scSMax(a, b)
+    m = re.match(r'scSMax\((.*)\)', expr)
+    if m:
+        args = split_args(m.group(1))
+        assert len(args) == 2
+        left = parse_symb_count(args[0], var_map)
+        right = parse_symb_count(args[1], var_map)
+        return If(left > right, left, right)
+
     # TR_%xxx
     m = re.match(r'TR_([%\w\.\= ]+)', expr)
     if m:
@@ -76,7 +85,7 @@ def parse_symb_count(expr, var_map=None):
     # %xxx or variable
     m = re.match(r'%[\w\.\= ]+', expr)
     if m:
-        return get_real_var(expr.strip(), var_map)
+        return get_int_var(expr.strip(), var_map)
 
     # Fallback: try to parse as arithmetic
     m = re.match(r'\((.*)\)', expr)
@@ -100,7 +109,7 @@ def parse_symb_count(expr, var_map=None):
             return left + right
 
     # If nothing matched, treat as variable
-    return get_real_var(expr.strip(), var_map)
+    return get_int_var(expr.strip(), var_map)
 
 # Helper to split arguments at top-level commas
 def split_args(s):
