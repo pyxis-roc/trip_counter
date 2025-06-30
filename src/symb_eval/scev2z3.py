@@ -35,6 +35,15 @@ def parse_symb_count(expr, var_map=None):
         z3_args = [parse_symb_count(a, var_map) for a in args]
         res = sum(z3_args)
         return res
+    
+    # scSub(a, b, ...)
+    m = re.match(r'scSub\((.*)\)', expr)
+    if m:
+        args = split_args(m.group(1))
+        assert len(args) == 2
+        left = parse_symb_count(args[0], var_map)
+        right = parse_symb_count(args[1], var_map)
+        return left - right
 
     # scMul(a, b, ...)
     m = re.match(r'scMul\((.*)\)', expr)
@@ -158,22 +167,22 @@ class TestParseSymbCount(unittest.TestCase):
         # Also test some nested expressions from the counts
         nested_exprs = [
             # conv:
-            "(1 - TR_%entry)",
-            "(1 - TR_%for_begin_ff.preheader.lr.ph)",
-            "(TR_%for_begin_i1.preheader.lr.ph * (TR_%for_begin_i0.preheader * ((1 - TR_%entry) * 1)))",
-            "((1 - TR_%for_begin_ff.preheader.lr.ph) * (TR_%for_begin_i1.preheader.lr.ph * (TR_%for_begin_i0.preheader * ((1 - TR_%entry) * 1))))",
-            "((scUDiv(scAdd(-2, scMul(2, scZeroExt(scTrunc(scUDiv(scZeroExt(%KW), 2))))), 2) + 1) * ((1 - TR_%for_begin_rx.preheader.us.us.us.us.us.us.us.us.us.us.us.us.us.us.us.us.us.us.us.us.us) * (scAdd(-1, scZeroExt(%KH)) * (scAdd(-1, scZeroExt(%CI)) * (scAdd(-1, scZeroExt(scAdd(3, scMul(-1, %KW), %W))) * (scAdd(-1, scZeroExt(scAdd(3, scMul(-1, %KH), %H))) * (scAdd(-1, scZeroExt(%CO)) * (scAdd(-1, scZeroExt(%N)) * ((1 - TR_%for_begin_ff.preheader.lr.ph) * (TR_%for_begin_i1.preheader.lr.ph * (TR_%for_begin_i0.preheader * ((1 - TR_%entry) * 1))))))))))))",
+            "scSub(1, TR_%entry)",
+            "scSub(1, TR_%for_begin_ff.preheader.lr.ph)",
+            "(TR_%for_begin_i1.preheader.lr.ph * (TR_%for_begin_i0.preheader * (scSub(1, TR_%entry) * 1)))",
+            "(scSub(1, TR_%for_begin_ff.preheader.lr.ph) * (TR_%for_begin_i1.preheader.lr.ph * (TR_%for_begin_i0.preheader * (scSub(1, TR_%entry) * 1))))",
+            "((scUDiv(scAdd(-2, scMul(2, scZeroExt(scTrunc(scUDiv(scZeroExt(%KW), 2))))), 2) + 1) * (scSub(1, TR_%for_begin_rx.preheader.us.us.us.us.us.us.us.us.us.us.us.us.us.us.us.us.us.us.us.us.us) * (scAdd(-1, scZeroExt(%KH)) * (scAdd(-1, scZeroExt(%CI)) * (scAdd(-1, scZeroExt(scAdd(3, scMul(-1, %KW), %W))) * (scAdd(-1, scZeroExt(scAdd(3, scMul(-1, %KH), %H))) * (scAdd(-1, scZeroExt(%CO)) * (scAdd(-1, scZeroExt(%N)) * (scSub(1, TR_%for_begin_ff.preheader.lr.ph) * (TR_%for_begin_i1.preheader.lr.ph * (TR_%for_begin_i0.preheader * (scSub(1, TR_%entry) * 1))))))))))))",
             # gather:
             "(TR_%for_begin_ax1.preheader.lr.ph * (TR_%entry * 1))",
             "((scAdd(-1, scZeroExt(%K)) + 1) * (TR_%for_begin_ax1.preheader.lr.ph * (TR_%entry * 1)))",
             # matmul:
             "(scAdd(-1, scZeroExt(%M)) * (TR_%entry * 1))",
             "((scAdd(-1, scZeroExt(%N)) * (scAdd(-1, scZeroExt(%M)) * (TR_%entry * 1))))",
-            "((scUDiv(scAdd(-4, scMul(4, scUDiv(scAdd(-1, scZeroExt(%K)), 4))), 4) + 1) * ((1 - TR_%for_body_k.us.us.us.peel.next) * ((1 - TR_%if_end.us.us.us.peel) * (scAdd(-1, scZeroExt(%N)) * (scAdd(-1, scZeroExt(%M)) * (TR_%entry * 1))))))",
-            "((scAdd(-1, scZeroExt(scAdd(-1, scTrunc(%K)))) + 1) * ((1 - TR_%for_begin_k.for_end_k_crit_edge.us.us.us.loopexit.unr-lcssa) * ((1 - TR_%if_end.us.us.us.peel) * (scAdd(-1, scZeroExt(%N)) * (scAdd(-1, scZeroExt(%M)) * (TR_%entry * 1))))))",
+            "((scUDiv(scAdd(-4, scMul(4, scUDiv(scAdd(-1, scZeroExt(%K)), 4))), 4) + 1) * (scSub(1, TR_%for_body_k.us.us.us.peel.next) * (scSub(1, TR_%if_end.us.us.us.peel) * (scAdd(-1, scZeroExt(%N)) * (scAdd(-1, scZeroExt(%M)) * (TR_%entry * 1))))))",
+            "((scAdd(-1, scZeroExt(scAdd(-1, scTrunc(%K)))) + 1) * (scSub(1, TR_%for_begin_k.for_end_k_crit_edge.us.us.us.loopexit.unr-lcssa) * (scSub(1, TR_%if_end.us.us.us.peel) * (scAdd(-1, scZeroExt(%N)) * (scAdd(-1, scZeroExt(%M)) * (TR_%entry * 1))))))",
             # unsqueeze:
-            "((scUDiv(scAdd(-4, scMul(4, scZeroExt(scTrunc(scUDiv(scZeroExt(%M), 4))))), 4) + 1) * ((1 - TR_%for_begin_ax2.preheader.us.preheader) * (TR_%entry * 1)))",
-            "((scAdd(-1, scZeroExt(scTrunc(%M))) + 1) * ((1 - TR_%for_end_ax0.loopexit.unr-lcssa) * (TR_%entry * 1)))",
+            "((scUDiv(scAdd(-4, scMul(4, scZeroExt(scTrunc(scUDiv(scZeroExt(%M), 4))))), 4) + 1) * (scSub(1, TR_%for_begin_ax2.preheader.us.preheader) * (TR_%entry * 1)))",
+            "((scAdd(-1, scZeroExt(scTrunc(%M))) + 1) * (scSub(1, TR_%for_end_ax0.loopexit.unr-lcssa) * (TR_%entry * 1)))",
         ]
         for expr in exprs + nested_exprs:
             with self.subTest(expr=expr):
