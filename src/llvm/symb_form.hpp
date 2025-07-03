@@ -30,12 +30,20 @@ public:
     shared_ptr<Symbol> multiply(const shared_ptr<Symbol>& other) const {
         return make_shared<Symbol>("scMul(" + literal + ", " + other->literal + ")");
     }
+    shared_ptr<Symbol> subtract(const shared_ptr<Symbol>& other) const {
+        return make_shared<Symbol>("scSub(" + literal + ", " + other->literal + ")");
+    }
     shared_ptr<Symbol> add(const shared_ptr<Symbol>& other) const {
         return make_shared<Symbol>("scAdd(" + literal + ", " + other->literal + ")");
     }
     shared_ptr<Symbol> addOne() const {
         return make_shared<Symbol>("scAdd(" + literal + ", 1)");
     }
+    
+    static shared_ptr<Symbol> one() {
+        return make_shared<Symbol>("1");
+    }
+
 
     void show(std::ostream& os = std::cout) const {
         os << literal << std::endl;
@@ -215,10 +223,12 @@ public:
     shared_ptr<Symbol> getLoopCount(llvm::Loop* loop);
 
     bool isHeaderExiting(llvm::Loop* loop){
-        return loop->isLoopExiting(loop->getHeader());
+        auto header = loop->getHeader();
+        // The header is exiting and the loop has more than one block
+        return loop->isLoopExiting(header) && (loop->getBlocks().size() > 1);
     }
     bool isTailExiting(llvm::Loop* loop){
-        return !loop->isLoopExiting(loop->getHeader());
+        return !isHeaderExiting(loop);
     }
 
     // some utility functions

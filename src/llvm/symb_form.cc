@@ -230,9 +230,8 @@ shared_ptr<Branch> GraphBuilder::createBranch(std::shared_ptr<BasicGraph> BG,
     if (!startBB || startBB == endBB) return nullptr;
 
     auto trueRatio_literal = "TR_" + getName(startBB);
-    auto falseRatio_literal = "(1 - " + trueRatio_literal + ")";
     auto trueRatio = make_shared<Symbol>(trueRatio_literal);
-    auto falseRatio = make_shared<Symbol>(falseRatio_literal);
+    auto falseRatio = Symbol::one()->subtract(trueRatio);
 
     auto incoming_count = BG->count;
     auto trueSide = startBB->getTerminator()->getSuccessor(0);
@@ -438,7 +437,7 @@ shared_ptr<Symbol> GraphBuilder::getLoopCount(llvm::Loop* loop){
 
     // SCEV gives backedge count, but we want trip count = backedge count + 1
     auto loopCount_literal = getExpandedSCEV(backedgeCount);
-    return make_shared<Symbol>(loopCount_literal);
+    return make_shared<Symbol>(loopCount_literal)->addOne();
 }
 
 void GraphViewer::showProgram(shared_ptr<Program> program, std::ostream& os, int indent) {
