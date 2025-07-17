@@ -12,7 +12,9 @@
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Function.h"
+#include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 #include <iostream>
@@ -27,27 +29,16 @@ public:
     string literal;
     Symbol(string literal) : literal(literal) {}
 
-    shared_ptr<Symbol> multiply(const shared_ptr<Symbol>& other) const {
-        return make_shared<Symbol>("scMul(" + literal + ", " + other->literal + ")");
-    }
-    shared_ptr<Symbol> subtract(const shared_ptr<Symbol>& other) const {
-        return make_shared<Symbol>("scSub(" + literal + ", " + other->literal + ")");
-    }
-    shared_ptr<Symbol> add(const shared_ptr<Symbol>& other) const {
-        return make_shared<Symbol>("scAdd(" + literal + ", " + other->literal + ")");
-    }
-    shared_ptr<Symbol> addOne() const {
-        return make_shared<Symbol>("scAdd(" + literal + ", 1)");
-    }
-    
-    static shared_ptr<Symbol> one() {
-        return make_shared<Symbol>("1");
-    }
+    shared_ptr<Symbol> multiply(const shared_ptr<Symbol>& other) const;
+    shared_ptr<Symbol> subtract(const shared_ptr<Symbol>& other) const;
+    shared_ptr<Symbol> add(const shared_ptr<Symbol>& other) const;
+    shared_ptr<Symbol> addOne() const;
 
+    static shared_ptr<Symbol> one();
 
-    void show(std::ostream& os = std::cout) const {
-        os << literal << std::endl;
-    }
+    bool substitude(string original, string with);
+
+    void show(std::ostream& os = std::cout) const;
 };
 
 class Graph;
@@ -180,6 +171,10 @@ public:
     llvm::LoopInfo& LI;
     llvm::PostDominatorTree& PDT;
     llvm::ScalarEvolution& SE;
+    
+    // map basicblock to the twin BasicGraph
+    std::map<shared_ptr<BasicGraph>, llvm::BasicBlock*> graph2bb;
+    void record(shared_ptr<BasicGraph>, llvm::BasicBlock*);
 
     GraphBuilder(llvm::LoopInfo& LI, llvm::PostDominatorTree& PDT, llvm::ScalarEvolution& SE) 
         : LI(LI), PDT(PDT), SE(SE) {}
@@ -203,7 +198,6 @@ public:
 
     GraphType getGraphType(llvm::BasicBlock* startBB, llvm::BasicBlock* endBB = nullptr);
 
-
     // builder for specific subgraph
     shared_ptr<BasicBlock> createBasicBlock(std::shared_ptr<BasicGraph> BG, 
         llvm::BasicBlock* startBB, llvm::BasicBlock* endBB = nullptr);
@@ -217,25 +211,65 @@ public:
     // create a loop head graph, which is a basic graph that contains the loop head
     GraphType getLoopHeadType(llvm::BasicBlock* startBB, llvm::BasicBlock* endBB);
     
-    shared_ptr<BasicGraph> getLoopHeadGraph(shared_ptr<Symbol> initCount, 
-        llvm::BasicBlock* startBB, llvm::BasicBlock* endBB = nullptr);
+    shared_ptr<BasicGraph> getLoopHeadGraph(shared_ptr<Symbol> initCount, shared_ptr<Symbol> bodyCount,
+    llvm::BasicBlock* startBB, llvm::BasicBlock* endBB = nullptr);
 
-    shared_ptr<Symbol> getLoopCount(llvm::Loop* loop);
+    
+    bool isHeaderExiting(llvm::Loop* loop);
+    bool isTailExiting(llvm::Loop* loop);
 
-    bool isHeaderExiting(llvm::Loop* loop){
-        auto header = loop->getHeader();
-        // The header is exiting and the loop has more than one block
-        return loop->isLoopExiting(header) && (loop->getBlocks().size() > 1);
-    }
-    bool isTailExiting(llvm::Loop* loop){
-        return !isHeaderExiting(loop);
-    }
+    
+    // previous logic builds a simple framework graph, this class tries to solve for
+    // each place holder
+    class Analysis{
+        public:
+        llvm::LoopInfo& LI;
+        llvm::ScalarEvolution& SE;
+        shared_ptr<Program> P;
+        std::map<shared_ptr<BasicGraph>, llvm::BasicBlock *> graph2bb;
+
+        // base factor of a control flow, which represent the execution count of this path
+        std::map<std::pair<llvm::BasicBlock*, llvm::BasicBlock*>, shared_ptr<Symbol>> baseFactor;
+
+        Analysis(llvm::LoopInfo& LI, llvm::ScalarEvolution& SE, shared_ptr<Program> P, 
+                std::map<shared_ptr<BasicGraph>, llvm::BasicBlock *> graph2bb):
+                LI(LI), SE(SE), P(P), graph2bb(graph2bb){
+            prepareBaseFactor(P);
+            refine(P->G);
+        }
+
+        // initializing base factors 
+        void prepareBaseFactor(shared_ptr<Program> P);
+        void traverse(shared_ptr<Graph> current, vector<shared_ptr<BasicGraph>>& stack);
+        void traverse(shared_ptr<BasicGraph> current, vector<shared_ptr<BasicGraph>>& stack);
+
+        void addFactor(llvm::BasicBlock*, llvm::BasicBlock*, shared_ptr<Symbol>);
+        shared_ptr<Symbol> getFactor(llvm::BasicBlock*, llvm::BasicBlock*);
+
+        // solve for loop count and true ratio //
+
+        // DFS to solve each individual LC TR, then update bottom up
+        void refine(shared_ptr<Graph>);
+        void refine(shared_ptr<BasicGraph>);
+
+        // replace original string with the expanded one
+        void update(shared_ptr<Graph>, pair<string, string>);
+        void update(shared_ptr<BasicGraph>, pair<string, string>);
+
+        shared_ptr<Symbol> getLoopCount(llvm::Loop* loop);
+        string getExpandedSCEV(const llvm::SCEV* scev);
+        void printRootExpr(const llvm::SCEV&, llvm::raw_ostream&);
+        void printExpanded(llvm::Value*, llvm::raw_ostream &);
+        void printPHI(llvm::Value*, llvm::raw_ostream &);
+
+        shared_ptr<Symbol> getTrueRatio(llvm::BasicBlock*);
+    };
 
     // some utility functions
     
-    std::string getName(llvm::BasicBlock* BB);
-    std::string getName(llvm::Argument*);
-    std::string getName(llvm::Loop*);
+    static std::string getName(llvm::BasicBlock*);
+    static std::string getName(llvm::Argument*);
+    static std::string getName(llvm::Loop*);
 };
 
 class GraphViewer{

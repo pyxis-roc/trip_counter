@@ -2,6 +2,7 @@
 #include <llvm/Analysis/ScalarEvolutionExpressions.h>
 #include "printer.hpp"
 #include "llvm/Analysis/ScalarEvolution.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
 
@@ -127,6 +128,7 @@ void Debug::printExpanded(Value* I, llvm::raw_ostream &os, v_set keep_unexpanded
     //expand cases
     if(Instruction* i = dyn_cast<Instruction>(I)){
         if (i->getOpcode() == Instruction::PHI){
+            llvm::errs()<<"Debug::printExpanded tries to expand PHI node\n";
             i->printAsOperand(os, false);
             return;
         }
