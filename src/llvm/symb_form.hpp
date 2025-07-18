@@ -12,6 +12,7 @@
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/Value.h"
 #include <map>
 #include <memory>
 #include <set>
@@ -260,7 +261,8 @@ public:
         string getExpandedSCEV(const llvm::SCEV* scev);
         void printRootExpr(const llvm::SCEV&, llvm::raw_ostream&);
         void printExpanded(llvm::Value*, llvm::raw_ostream &);
-        void printPHI(llvm::Value*, llvm::raw_ostream &);
+        void printExpandedPHI(llvm::Value*, llvm::raw_ostream &);
+        bool isSolvablePHI(llvm::Value*);
 
         shared_ptr<Symbol> getTrueRatio(llvm::BasicBlock*);
     };

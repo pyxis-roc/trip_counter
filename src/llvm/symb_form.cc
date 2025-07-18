@@ -3,6 +3,7 @@
 #include "utils.hpp"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/IR/Value.h"
 #include "llvm/Support/raw_ostream.h"
 #include <llvm/IR/BasicBlock.h>
@@ -12,6 +13,7 @@
 #include <tuple>
 #include <utility>
 #include <vector>
+#include <unordered_set>
 
 shared_ptr<Symbol> Symbol::multiply(const shared_ptr<Symbol>& other) const {
     return make_shared<Symbol>("scMul(" + literal + ", " + other->literal + ")");
@@ -34,9 +36,18 @@ bool Symbol::substitude(string original, string with){
     size_t pos = 0;
     bool changed = false;
     while ((pos = literal.find(original, pos)) != std::string::npos) {
-        literal.replace(pos, original.length(), with);
-        pos += with.length();
-        changed = true;
+        // Check if match is a standalone variable (not part of a longer identifier)
+        bool atStart = (pos == 0);
+        bool atEnd = (pos + original.length() == literal.length());
+        bool beforeOK = atStart || !std::isalnum(literal[pos - 1]) && literal[pos - 1] != '.';
+        bool afterOK = atEnd || !std::isalnum(literal[pos + original.length()]) && literal[pos + original.length()] != '.';
+        if (beforeOK && afterOK) {
+            literal.replace(pos, original.length(), with);
+            pos += with.length();
+            changed = true;
+        } else {
+            pos += original.length();
+        }
     }
     return changed;
 }
@@ -567,8 +578,6 @@ void GA::update(shared_ptr<BasicGraph> BG, pair<string, string> subs){
     auto original = subs.first;
     auto updated = subs.second;
     
-    llvm::errs()<<BG->name<<'\n'<<original<<'\n'<<updated<<'\n';
-
     BG->count->substitude(original, updated);
 
     switch (BG->getGraphType()) {
@@ -687,7 +696,12 @@ void GA::printExpanded(llvm::Value* I, llvm::raw_ostream &os){
     //expand cases
     if(llvm::Instruction* i = llvm::dyn_cast<llvm::Instruction>(I)){
         if (i->getOpcode() == llvm::Instruction::PHI){
-            printPHI(i, os);
+            if(isSolvablePHI(i)){
+                printExpandedPHI(i, os);
+            }
+            else{
+                i->printAsOperand(os, false);
+            }
             return;
         }
         // Map LLVM opcodes to SCEV operator names (with parentheses for consistency)
@@ -726,7 +740,7 @@ void GA::printExpanded(llvm::Value* I, llvm::raw_ostream &os){
     }
 }
 
-void GA::printPHI(llvm::Value* I, llvm::raw_ostream & os){
+void GA::printExpandedPHI(llvm::Value* I, llvm::raw_ostream & os){
     if (!I) {
         llvm::errs() << "Error: printPHI: Value is null\n";
         os << "unknown";
@@ -754,9 +768,41 @@ void GA::printPHI(llvm::Value* I, llvm::raw_ostream & os){
             phi->printAsOperand(llvm::errs(), false);
             llvm::errs() << " from basic block: " << GraphBuilder::getName(incomingBB) << "\n";
             phi->printAsOperand(os, false);
+            os << "unknown";
         }
     }
     os << ")";
+}
+
+bool GA::isSolvablePHI(llvm::Value* v){
+    if (!v) return false;
+    std::set<llvm::Value*> visited;
+    std::set<llvm::Value*> recStack;
+
+    std::function<bool(llvm::Value*)> hasCircularDependency = [&](llvm::Value* V) -> bool {
+        if (recStack.count(V)) return true;
+        if (visited.count(V)) return false;
+
+        visited.insert(V);
+        recStack.insert(V);
+
+        if (auto *I = llvm::dyn_cast<llvm::Instruction>(V)) {
+            for (auto &Op : I->operands()) {
+                if (hasCircularDependency(Op.get()))
+                    return true;
+            }
+        } else if (auto *phi = llvm::dyn_cast<llvm::PHINode>(V)) {
+            for (unsigned i = 0; i < phi->getNumIncomingValues(); ++i) {
+                if (hasCircularDependency(phi->getIncomingValue(i)))
+                    return true;
+            }
+        }
+
+        recStack.erase(V);
+        return false;
+    };
+
+    return !hasCircularDependency(v);
 }
 
 
@@ -1131,24 +1177,3 @@ void GraphViewer::getAllBasicGraphs(shared_ptr<BasicGraph> BG, vector<shared_ptr
     
     }
 }
-
-// using GC = GraphBuilder::ControlContext; 
-
-// void GC::addMapping(llvm::BasicBlock* bb, shared_ptr<BasicGraph> graph){
-//     if (bb2graph.find(bb) == bb2graph.end()){
-//         bb2graph[bb] = vector<shared_ptr<BasicGraph>>();
-//         bb2graph[bb].push_back(graph);
-//     }
-// }
-
-// void GC::pushControl(llvm::BasicBlock* bb){
-//     controlStack.push_back(bb);
-// }
-
-// void GC::popControl(){
-//     controlStack.pop_back();
-// }
-
-// llvm::BasicBlock* GC::lastControl() const{
-//     return controlStack.back();
-// }
