@@ -5,9 +5,6 @@ project(symCount VERSION 1.0)
 # get nlohmann/json
 include(FetchContent)
 
-FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz)
-FetchContent_MakeAvailable(json)
-
 # find llvm
 find_package(LLVM REQUIRED CONFIG)
 execute_process(
@@ -16,6 +13,25 @@ execute_process(
     LLVM_INCLUDE_DIRS
 )
 include_directories(${LLVM_INCLUDE_DIRS})
+    
+FetchContent_Declare(z3
+        GIT_REPOSITORY https://github.com/Z3Prover/z3
+        GIT_TAG        z3-4.12.1
+)
+
+# 👇 Now safely make Z3 available
+FetchContent_MakeAvailable(z3)
+
+include_directories(
+    ${z3_SOURCE_DIR}/src/api
+    ${z3_SOURCE_DIR}/src/api/c++
+)
+
+set(Z3_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}" CACHE PATH "" FORCE)
+set(Z3_INSTALL TRUE CACHE BOOL "" FORCE)  # ensure it installs
+
+FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz)
+FetchContent_MakeAvailable(json)
 
 
 set(CMAKE_CXX_STANDARD 17)
@@ -48,8 +64,8 @@ add_executable(
     block_counting.cc
     control_variable.cc 
     loop_summary.cc
-    printer.cc
     utils.cc
+    printer.cc
 )
 
 add_executable(
@@ -63,12 +79,13 @@ add_executable(
     symb_viewer.cc
     symb_form.cc
     utils.cc
-    printer.cc
+    symb_expr.cc
 )
+
 
 target_compile_definitions(symCount PRIVATE IR_PLUGIN_PATH="${PROJECT_SOURCE_DIR}/IR_plugin")
 target_include_directories(symCount PUBLIC "${PROJECT_SOURCE_DIR}")
 target_link_libraries(symCount LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis nlohmann_json::nlohmann_json)
 target_link_libraries(instr-count LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis nlohmann_json::nlohmann_json)
-target_link_libraries(symb-viewer LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis nlohmann_json::nlohmann_json)
+target_link_libraries(symb-viewer LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis nlohmann_json::nlohmann_json libz3)
 install(TARGETS symCount instr-count symb-viewer DESTINATION bin)

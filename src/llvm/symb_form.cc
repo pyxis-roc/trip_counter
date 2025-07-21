@@ -9,11 +9,11 @@
 #include <llvm/IR/BasicBlock.h>
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include <memory>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <utility>
 #include <vector>
-#include <unordered_set>
 
 shared_ptr<Symbol> Symbol::multiply(const shared_ptr<Symbol>& other) const {
     return make_shared<Symbol>("scMul(" + literal + ", " + other->literal + ")");
@@ -65,20 +65,20 @@ void GraphBuilder::record(shared_ptr<BasicGraph> graph, llvm::BasicBlock* bb){
 shared_ptr<Program> GraphBuilder::createProgram(llvm::Function * F){
 
     auto args = F->arg_begin();
-    auto argList = std::vector<std::shared_ptr<Symbol>>();
+    auto argList = std::vector<SymbolicExpr>();
     for (; args != F->arg_end(); ++args) {
         auto argName = getName(args);
-        auto symbol = std::make_shared<Symbol>(argName);
+        auto symbol = SEM.named(argName);
         argList.push_back(symbol);
     }
 
-    auto graph = createGraph(std::make_shared<Symbol>("1"), &F->getEntryBlock());
+    auto graph = createGraph(SEM.one(), &F->getEntryBlock());
     auto P = std::make_shared<Program>(Program(argList, graph));
-    Analysis a(LI, SE, P, graph2bb);
+    Analysis a(LI, SE, SEM, P, graph2bb);
     return P;
 }
 
-shared_ptr<Graph> GraphBuilder::createGraph(shared_ptr<Symbol> initCount, 
+shared_ptr<Graph> GraphBuilder::createGraph(SymbolicExpr initCount, 
         llvm::BasicBlock* startBB, llvm::BasicBlock* endBB){
 
     if (!startBB || startBB == endBB) return nullptr;
@@ -183,7 +183,7 @@ llvm::BasicBlock* GraphBuilder::nextGraphHead(GraphType type, llvm::BasicBlock* 
     }
 }
 
-shared_ptr<BasicGraph> GraphBuilder::createBasicGraph(std::shared_ptr<Symbol> count, 
+shared_ptr<BasicGraph> GraphBuilder::createBasicGraph(SymbolicExpr count, 
         llvm::BasicBlock* startBB, llvm::BasicBlock* endBB){
     
     if (!startBB || startBB == endBB) return nullptr;
@@ -291,14 +291,14 @@ shared_ptr<Branch> GraphBuilder::createBranch(std::shared_ptr<BasicGraph> BG,
     if (!startBB || startBB == endBB) return nullptr;
 
     auto trueRatio_literal = "TR_" + getName(startBB);
-    auto trueRatio = make_shared<Symbol>(trueRatio_literal);
-    auto falseRatio = Symbol::one()->subtract(trueRatio);
+    auto trueRatio = SEM.named(trueRatio_literal);
+    auto falseRatio = SEM.one() - trueRatio;
 
     auto incoming_count = BG->count;
     auto trueSide = startBB->getTerminator()->getSuccessor(0);
     auto falseSide = startBB->getTerminator()->getSuccessor(1);
-    auto G1 = createGraph(trueRatio->multiply(incoming_count), trueSide, endBB);
-    auto G2 = createGraph(falseRatio->multiply(incoming_count), falseSide, endBB);
+    auto G1 = createGraph(trueRatio * incoming_count, trueSide, endBB);
+    auto G2 = createGraph(falseRatio * incoming_count, falseSide, endBB);
 
     auto graph = make_shared<Branch>(
         Branch(
@@ -376,30 +376,32 @@ GraphType GraphBuilder::getLoopHeadType(llvm::BasicBlock* startBB, llvm::BasicBl
     return GraphType::Unknown;
 }
 
-shared_ptr<BasicGraph> GraphBuilder::getLoopHeadGraph(shared_ptr<Symbol> initCount, 
-    shared_ptr<Symbol> bodyCount, llvm::BasicBlock* startBB, llvm::BasicBlock* endBB){
-    
+shared_ptr<BasicGraph> GraphBuilder::getLoopHeadGraph(SymbolicExpr initCount, 
+    SymbolicExpr bodyCount, llvm::BasicBlock* startBB, llvm::BasicBlock* endBB){
+
     auto loop = LI.getLoopFor(startBB);
     if (!loop){
         llvm::errs() << "Error: GraphBuilder::getLoopHeadGraph: it is not a loop\n";
         return nullptr;
     }
 
-    shared_ptr<Symbol> count;
+    shared_ptr<BasicGraph> BG = nullptr;
     if(isHeaderExiting(loop)){
         // header exiting, header is executed one more time than body
-        count = bodyCount->addOne()->multiply(initCount);
+        BG = make_shared<BasicGraph>(
+            getBlockID(startBB),
+            getName(startBB),
+            (bodyCount + SEM.one()) * initCount
+        );
     }
     else{
         // tail exiting, both header and body execute the same time
-        count = bodyCount->multiply(initCount);
+        BG = make_shared<BasicGraph>(
+            getBlockID(startBB),
+            getName(startBB),
+            bodyCount * initCount
+        );
     }
-
-    auto BG = make_shared<BasicGraph>(
-        getBlockID(startBB),
-        getName(startBB),
-        count
-    );
 
     auto headType = getLoopHeadType(startBB, endBB);
     auto nextHead = nextGraphHead(headType, startBB);
@@ -440,15 +442,14 @@ shared_ptr<Loop> GraphBuilder::createLoop(std::shared_ptr<BasicGraph> BG,
     }
 
     auto incoming_count = BG->count;
-    auto bodyCount = make_shared<Symbol>("LC_" + getName(loop));
-    // auto bodyCount = getLoopCount(loop, ctx);
+    auto bodyCount = SEM.named("LC_" + getName(loop));
     
     auto headGraph = getLoopHeadGraph(incoming_count, bodyCount, startBB, exitBlock);
     auto headType = headGraph->getGraphType();
 
     auto bodyStart = nextGraphHead(headType, startBB);
     auto bodyEnd = isHeaderExiting(loop) ? startBB : exitBlock;
-    auto Gb = createGraph(bodyCount->multiply(incoming_count), 
+    auto Gb = createGraph(bodyCount * incoming_count, 
     bodyStart, bodyEnd);
     
     auto graph = make_shared<Loop>(
@@ -479,14 +480,14 @@ void GA::prepareBaseFactor(shared_ptr<Program>P){
     traverse(P->G, stack);
 }
 
-shared_ptr<Symbol> GA::getFactor(llvm::BasicBlock* from, llvm::BasicBlock* to){
+optional<SymbolicExpr> GA::getFactor(llvm::BasicBlock* from, llvm::BasicBlock* to){
     auto p = make_pair(from, to);
-    return baseFactor[p];
+    return baseFactor.at(p);
 }
 
-void GA::addFactor(llvm::BasicBlock* from, llvm::BasicBlock* to, shared_ptr<Symbol> factor){
+void GA::addFactor(llvm::BasicBlock* from, llvm::BasicBlock* to, SymbolicExpr factor){
     auto p = make_pair(from, to);
-    baseFactor[p] = factor;
+    baseFactor.emplace(p, factor);
 }
 
 void GA::traverse(shared_ptr<Graph> G, vector<shared_ptr<BasicGraph>>& stack){
@@ -546,7 +547,9 @@ void GA::refine(shared_ptr<BasicGraph> BG){
             refine(branch->G1);
             refine(branch->G2);
             if(auto TRexpanded = getTrueRatio(graph2bb[branch])){
-                update(branch, make_pair(branch->trueRatio->literal, TRexpanded->literal));
+                // llvm::errs() << branch->trueRatio.str() << '\n';
+                // llvm::errs() << TRexpanded->str() << '\n';
+                // update(branch, make_pair(branch->trueRatio->literal, TRexpanded->literal));
             }
             break;
         }
@@ -555,7 +558,7 @@ void GA::refine(shared_ptr<BasicGraph> BG){
             refine(loop->head);
             refine(loop->Gb);
             if(auto LCexpanded = getLoopCount(LI.getLoopFor(graph2bb[loop]))){
-                update(loop, make_pair(loop->loopCount->literal, LCexpanded->literal));
+                update(loop, make_pair(loop->loopCount, LCexpanded.value()));
             }
             break;
         }
@@ -565,35 +568,35 @@ void GA::refine(shared_ptr<BasicGraph> BG){
     }
 }
 
-void GA::update(shared_ptr<Graph> G, pair<string, string> subs){
+void GA::update(shared_ptr<Graph> G, pair<SymbolicExpr, SymbolicExpr> subs){
     if(!G) return;
 
     update(G->BG, subs);
     update(G->G, subs);
 }
 
-void GA::update(shared_ptr<BasicGraph> BG, pair<string, string> subs){
+void GA::update(shared_ptr<BasicGraph> BG, pair<SymbolicExpr, SymbolicExpr> subs){
     if(! BG) return;
 
     auto original = subs.first;
     auto updated = subs.second;
     
-    BG->count->substitude(original, updated);
+    BG->count.substitude(original, updated);
 
     switch (BG->getGraphType()) {
         case GraphType::BasicBlock:
             break;
         case GraphType::Branch: {
             auto branch = std::static_pointer_cast<Branch>(BG);
-            branch->trueRatio->substitude(original, updated);
-            branch->falseRatio->substitude(original, updated);
+            branch->trueRatio.substitude(original, updated);
+            branch->falseRatio.substitude(original, updated);
             update(branch->G1, subs);
             update(branch->G2, subs);
             break;
         }
         case GraphType::Loop: {
             auto loop = std::static_pointer_cast<Loop>(BG);
-            loop->loopCount->substitude(original, updated);
+            loop->loopCount.substitude(original, updated);
             update(loop->head, subs);
             update(loop->Gb, subs);
             break;
@@ -604,21 +607,39 @@ void GA::update(shared_ptr<BasicGraph> BG, pair<string, string> subs){
     }
 }
 
-shared_ptr<Symbol> GA::getTrueRatio(llvm::BasicBlock* bb){
-    return nullptr;
+optional<SymbolicExpr> GA::getTrueRatio(llvm::BasicBlock* bb){
+    if (!bb) {
+        llvm::errs() << "Error: getTrueRatio: BasicBlock is null\n";
+        return std::nullopt;
+    }
+    llvm::Instruction* term = bb->getTerminator();
+    if (!term) {
+        llvm::errs() << "Error: getTrueRatio: Terminator is null for block " << GraphBuilder::getName(bb) << "\n";
+        return std::nullopt;
+    }
+    if (!isSolvable(term)) {
+        llvm::errs() << "Warning: getTrueRatio: Terminator not solvable for block " << GraphBuilder::getName(bb) << "\n";
+        return std::nullopt;
+    }
+
+    std::string name;
+    llvm::raw_string_ostream rso(name);
+    printExpanded(term, rso);
+    rso.flush();
+    return SEM.named("TR_" + name);
 }
 
-shared_ptr<Symbol> GA::getLoopCount(llvm::Loop* loop){
+optional<SymbolicExpr> GA::getLoopCount(llvm::Loop* loop){
     if (!loop) {
         llvm::errs() << "Error: getLoopCount: Loop is null\n";
-        return nullptr;
+        return std::nullopt;
     }
 
     // Use ScalarEvolution to get the backedge taken count
     llvm::ScalarEvolution *SE = &this->SE;
     if (!SE) {
         llvm::errs() << "Error: getLoopCount: ScalarEvolution is null\n";
-        return nullptr;
+        return std::nullopt;
     }
 
     const llvm::SCEV *backedgeCount = SE->getBackedgeTakenCount(loop);
@@ -626,12 +647,11 @@ shared_ptr<Symbol> GA::getLoopCount(llvm::Loop* loop){
         llvm::errs() << "Warning: getLoopCount: Could not compute backedge count for loop " << getName(loop) << "\n";
         // Fallback to symbolic name
         auto loopCount_literal = "LC_" + getName(loop);
-        return make_shared<Symbol>(loopCount_literal);
+        return SEM.named(loopCount_literal);
     }
 
     // SCEV gives backedge count, but we want trip count = backedge count + 1
-    auto loopCount_literal = getExpandedSCEV(backedgeCount);
-    return make_shared<Symbol>(loopCount_literal)->addOne();
+    return SEM.fromSCEV(*backedgeCount) + SEM.one();
 }
 
 // expand the symbolic count to an expression that only uses program inputs
@@ -693,15 +713,14 @@ void GA::printRootExpr(const llvm::SCEV& E, llvm::raw_ostream &os){
 }
 
 void GA::printExpanded(llvm::Value* I, llvm::raw_ostream &os){
+    if (!isSolvable(I)){
+        I->printAsOperand(os, false);
+        return;
+    }
     //expand cases
     if(llvm::Instruction* i = llvm::dyn_cast<llvm::Instruction>(I)){
         if (i->getOpcode() == llvm::Instruction::PHI){
-            if(isSolvablePHI(i)){
-                printExpandedPHI(i, os);
-            }
-            else{
-                i->printAsOperand(os, false);
-            }
+            printExpandedPHI(i, os);
             return;
         }
         // Map LLVM opcodes to SCEV operator names (with parentheses for consistency)
@@ -742,13 +761,13 @@ void GA::printExpanded(llvm::Value* I, llvm::raw_ostream &os){
 
 void GA::printExpandedPHI(llvm::Value* I, llvm::raw_ostream & os){
     if (!I) {
-        llvm::errs() << "Error: printPHI: Value is null\n";
+        llvm::errs() << "Error: printExpandedPHI: Value is null\n";
         os << "unknown";
         return;
     }
     llvm::PHINode* phi = llvm::dyn_cast<llvm::PHINode>(I);
     if (!phi) {
-        llvm::errs() << "Error: printPHI: Not a PHI node\n";
+        llvm::errs() << "Error: printExpandedPHI: Not a PHI node\n";
         os << "unknown";
         return;
     }
@@ -760,11 +779,11 @@ void GA::printExpandedPHI(llvm::Value* I, llvm::raw_ostream & os){
         llvm::Value* incomingVal = phi->getIncomingValue(i);
         if (auto baseFactor = getFactor(incomingBB, currentBB)) {
             os << "scMul(";
-            os << baseFactor->literal << ", ";
+            os << baseFactor->str() << ", ";
             printExpanded(incomingVal, os);
             os << ")";
         } else {
-            llvm::errs() << "printPHI: no TR expression for phi: ";
+            llvm::errs() << "printExpandedPHI: no TR expression for phi: ";
             phi->printAsOperand(llvm::errs(), false);
             llvm::errs() << " from basic block: " << GraphBuilder::getName(incomingBB) << "\n";
             phi->printAsOperand(os, false);
@@ -774,7 +793,7 @@ void GA::printExpandedPHI(llvm::Value* I, llvm::raw_ostream & os){
     os << ")";
 }
 
-bool GA::isSolvablePHI(llvm::Value* v){
+bool GA::isSolvable(llvm::Value* v){
     if (!v) return false;
     std::set<llvm::Value*> visited;
     std::set<llvm::Value*> recStack;
@@ -816,7 +835,7 @@ void GraphViewer::showProgram(shared_ptr<Program> program, std::ostream& os, int
     os << pad << "Program:\n";
     os << pad << "Inputs: ";
     for (const auto& input : program->inputs) {
-        os << input->literal << " ";
+        os << input.str() << " ";
     }
     os << "\n";
     showGraph(program->G, os, indent + 2);
@@ -867,7 +886,7 @@ void GraphViewer::showBasicBlock(shared_ptr<BasicBlock> BB, std::ostream& os, in
     }
 
     os << pad << "BasicBlock: " << BB->name << "\n";
-    os << pad << "Count: " << (BB ? BB->count->literal : "N/A") << "\n";
+    os << pad << "Count: " << (BB ? BB->count.str() : "N/A") << "\n";
 }
 
 void GraphViewer::showBranch(shared_ptr<Branch> BR, std::ostream& os, int indent) {
@@ -878,7 +897,7 @@ void GraphViewer::showBranch(shared_ptr<Branch> BR, std::ostream& os, int indent
     }
 
     os << pad << "Branch: " << BR->name << "\n";
-    os << pad << "True Ratio: " << BR->trueRatio->literal << "\n";
+    os << pad << "True Ratio: " << BR->trueRatio.str() << "\n";
     os << pad << "True Side Graph:\n";
     showGraph(BR->G1, os, indent + 2);
     os << pad << "False Side Graph:\n";
@@ -893,7 +912,7 @@ void GraphViewer::showLoop(shared_ptr<Loop> L, std::ostream& os, int indent) {
     }
 
     os << pad << "Loop: " << L->name << "\n";
-    os << pad << "Loop Count: " << L->loopCount->literal << "\n";
+    os << pad << "Loop Count: " << L->loopCount.str() << "\n";
     os << pad << "Head Graph:\n";
     showBasicGraph(L->head, os, indent + 2);
     os << pad << "Body Graph:\n";
@@ -939,7 +958,7 @@ void GraphViewer::showProgramAsJson(shared_ptr<Program> program, std::ostream& o
     nlohmann::json j;
     j["inputs"] = nlohmann::json::array();
     for (const auto& input : program->inputs) {
-        j["inputs"].push_back(input->literal);
+        j["inputs"].push_back(input.str());
     }
 
     j["graph"] = program->G ? GraphViewer::graphToJson(program->G) : nlohmann::json::object();
@@ -1014,7 +1033,7 @@ void GraphViewer::showAllBasicGraphsAsJson(shared_ptr<Program> program, std::ost
     nlohmann::json j;
     j["args"] = nlohmann::json::array();
     for (const auto& input : program->inputs) {
-        j["args"].push_back(input->literal);
+        j["args"].push_back(input.str());
     }
     j["basic_graphs"] = nlohmann::json::array();
     for (const auto& bg : allBasicGraphs) {
@@ -1033,7 +1052,7 @@ nlohmann::json GraphViewer::programToJson(shared_ptr<Program> program) {
 
     j["inputs"] = nlohmann::json::array();
     for (const auto& input : program->inputs) {
-        j["inputs"].push_back(input->literal);
+        j["inputs"].push_back(input.str());
     }
 
     j["graph"] = program->G ? graphToJson(program->G) : nlohmann::json::object();
@@ -1062,7 +1081,7 @@ nlohmann::json GraphViewer::basicGraphToJson(shared_ptr<BasicGraph> BG) {
 
     j["id"] = BG->id;
     j["name"] = BG->name;
-    j["count"] = BG->count ? BG->count->literal : "N/A";
+    j["count"] = BG->count.str();
     // Map GraphType enum to string for JSON output
     switch (BG->getGraphType()) {
         case GraphType::BasicBlock:
@@ -1090,7 +1109,7 @@ nlohmann::json GraphViewer::basicBlockToJson(shared_ptr<BasicBlock> BB) {
 
     j["id"] = BB->id;
     j["name"] = BB->name;
-    j["count"] = BB->count ? BB->count->literal : "N/A";
+    j["count"] = BB->count.str();
     j["graph_type"] = "BasicBlock";
 
     return j;
@@ -1104,8 +1123,8 @@ nlohmann::json GraphViewer::branchToJson(shared_ptr<Branch> BR) {
 
     j["id"] = BR->id;
     j["name"] = BR->name;
-    j["true_ratio"] = BR->trueRatio ? BR->trueRatio->literal : "N/A";
-    j["false_ratio"] = BR->falseRatio ? BR->falseRatio->literal : "N/A";
+    j["true_ratio"] = BR->trueRatio.str();
+    j["false_ratio"] = BR->falseRatio.str();
     j["G1"] = BR->G1 ? graphToJson(BR->G1) : nlohmann::json::object();
     j["G2"] = BR->G2 ? graphToJson(BR->G2) : nlohmann::json::object();
     j["graph_type"] = "Branch";
@@ -1121,7 +1140,7 @@ nlohmann::json GraphViewer::loopToJson(shared_ptr<Loop> L) {
 
     j["id"] = L->id;
     j["name"] = L->name;
-    j["loop_count"] = L->loopCount ? L->loopCount->literal : "N/A";
+    j["loop_count"] = L->loopCount.str();
     j["head"] = basicGraphToJson(L->head);
     j["Gb"] = L->Gb ? graphToJson(L->Gb) : nlohmann::json::object();
     j["graph_type"] = "Loop";
