@@ -5,6 +5,7 @@
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Value.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
 #include <llvm/IR/BasicBlock.h>
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
@@ -651,7 +652,227 @@ optional<SymbolicExpr> GA::getLoopCount(llvm::Loop* loop){
     }
 
     // SCEV gives backedge count, but we want trip count = backedge count + 1
-    return SEM.fromSCEV(*backedgeCount) + SEM.one();
+    return SCEV2Expr(*backedgeCount) + SEM.one();
+}
+
+SymbolicExpr GA::SCEV2Expr(const llvm::SCEV& scev) {
+    // scev.print(llvm::errs());
+    // llvm::errs() << "\n";
+    auto & ctx = SEM.context();
+
+    vector<SymbolicExpr> args;
+    for (const auto& op : scev.operands()) {
+        args.push_back(SCEV2Expr(*op));
+    }
+
+    switch (scev.getSCEVType()) {
+        case llvm::scAddExpr:{
+            SymbolicExpr sum = args.size() > 0 ? args[0] : SEM.intVal(0);
+            for (unsigned i = 1; i < args.size(); ++i) {
+                sum = sum + args[i];
+            }
+            return sum;
+        }
+        case llvm::scMulExpr:{
+            SymbolicExpr product = args.size() > 0 ? args[0] : SEM.intVal(1);
+            for (unsigned i = 1; i < args.size(); ++i) {
+                product = product * args[i];
+            }
+            return product;
+        }
+        case llvm::scZeroExtend:{
+            if (args.size() == 1) {
+                // Get the target bitwidth from the SCEV type
+                unsigned targetBitwidth = scev.getType()->getPrimitiveSizeInBits();
+                unsigned srcBitwidth = args[0].getBitwidth();
+                if (targetBitwidth > srcBitwidth) {
+                    return args[0].zeroExtend(targetBitwidth - srcBitwidth);
+                } else if (targetBitwidth == srcBitwidth) {
+                    return args[0];
+                } else {
+                    llvm::errs() << "Error: ZeroExtend target bitwidth is less than source bitwidth.\n";
+                }
+            }
+            llvm::errs() << "Error: ZeroExtend requires exactly one operand.\n";
+            break;
+        }            
+        case llvm::scTruncate:{
+            if (args.size() == 1) {
+                // Get the target bitwidth from the SCEV type
+                unsigned targetBitwidth = scev.getType()->getPrimitiveSizeInBits();
+                unsigned srcBitwidth = args[0].getBitwidth();
+                if (targetBitwidth < srcBitwidth) {
+                    return args[0].truncate(targetBitwidth);
+                } else if (targetBitwidth == srcBitwidth) {
+                    return args[0];
+                } else {
+                    llvm::errs() << "Error: Truncate target bitwidth is greater than source bitwidth.\n";
+                }
+            }
+            llvm::errs() << "Error: Truncate requires exactly one operand.\n";
+            break;
+        }
+        case llvm::scUDivExpr:{
+            if (args.size() == 2) {
+                return args[0] / args[1];
+            }
+            llvm::errs() << "Error: UDivExpr requires exactly two operands.\n";
+            break;
+        }
+        case llvm::scSignExtend:{
+            if (args.size() == 1) {
+                // Get the target bitwidth from the SCEV type
+                unsigned targetBitwidth = scev.getType()->getPrimitiveSizeInBits();
+                unsigned srcBitwidth = args[0].getBitwidth();
+                if (targetBitwidth > srcBitwidth) {
+                    return args[0].signedExtend(targetBitwidth - srcBitwidth);
+                } else if (targetBitwidth == srcBitwidth) {
+                    return args[0];
+                } else {
+                    llvm::errs() << "Error: SignExtend target bitwidth is less than source bitwidth.\n";
+                }
+            }
+            llvm::errs() << "Error: SignExtend requires exactly one operand.\n";
+            break;
+        }
+        case llvm::scSMaxExpr:{
+            if (args.size() == 2) {
+                return SymbolicExpr::signedMax(args[0], args[1]);
+            }
+            llvm::errs() << "Error: SMaxExpr requires exactly two operands.\n";
+            break;
+        }
+        case llvm::scConstant:{
+            const llvm::SCEVConstant* scevConst = llvm::cast<llvm::SCEVConstant>(&scev);
+            unsigned bitwidth = scevConst->getType()->getPrimitiveSizeInBits();
+            return SEM.bvVal(scevConst->getValue()->getSExtValue(), bitwidth);
+        }        
+        case llvm::scUnknown:{
+            unsigned bitwidth = scev.getType()->getPrimitiveSizeInBits();
+            if (const llvm::SCEVUnknown* scevUnknown = llvm::dyn_cast<llvm::SCEVUnknown>(&scev)) {
+                if (const llvm::Value* val = scevUnknown->getValue()) {
+                    return value2Expr(*val);
+                }
+            }
+            llvm::errs() << "Error: SCEVUnknown without value.\n";
+            static int unknown_counter = 0;
+            std::string name = "unknown_val_" + std::to_string(++unknown_counter);
+            return SEM.bvNamed(name, bitwidth);
+        }
+        default:{
+            llvm::errs() << "Error: Unsupported SCEV type: " << scev.getSCEVType() << "\n";
+            scev.print(llvm::errs());
+            llvm::errs() << "\n";
+        }
+    }
+    static int counter = 0;
+    std::string name = "unknown_" + std::to_string(++counter);
+    return SEM.named(name);
+}
+
+SymbolicExpr GA::inst2Expr(const llvm::Instruction& I) {
+    auto & ctx_ = SEM.context();
+
+    switch (I.getOpcode()) {
+        case llvm::Instruction::PHI:{
+            auto phi = llvm::dyn_cast<llvm::PHINode>(&I);
+            auto sum = SEM.intVal(0);
+            for (unsigned i = 0; i < phi->getNumIncomingValues(); ++i) {
+                auto incomingBB = phi->getIncomingBlock(i);
+                auto currentBB = const_cast<llvm::BasicBlock*>(phi->getParent());
+                auto incomingVal = phi->getIncomingValue(i);
+                if (auto baseFactor = getFactor(incomingBB, currentBB)) {
+                    sum = sum + baseFactor.value() * value2Expr(*incomingVal);
+                } else {
+                    llvm::errs() << "printExpandedPHI: no TR expression for phi: ";
+                    phi->printAsOperand(llvm::errs(), false);
+                    llvm::errs() << " from basic block: " << GraphBuilder::getName(incomingBB) << "\n";
+                    phi->printAsOperand(llvm::errs(), false);
+                    static int counter = 0;
+                    std::string name = "unknown_phi_" + std::to_string(++counter);
+                    sum = sum + SEM.named(name);
+                }
+            }
+            return sum;
+        }
+        case llvm::Instruction::And:{
+            auto op0 = I.getOperand(0);
+            auto op1 = I.getOperand(1);
+            auto expr0 = value2Expr(*op0);
+            auto expr1 = value2Expr(*op1);
+            return expr0 & expr1;
+        }
+        case llvm::Instruction::Add:{
+            auto op0 = I.getOperand(0);
+            auto op1 = I.getOperand(1);
+            auto expr0 = value2Expr(*op0);
+            auto expr1 = value2Expr(*op1);
+            return expr0 + expr1;
+        }
+        case llvm::Instruction::Sub:{
+            auto op0 = I.getOperand(0);
+            auto op1 = I.getOperand(1);
+            auto expr0 = value2Expr(*op0);
+            auto expr1 = value2Expr(*op1);
+            return expr0 - expr1;
+        }
+        case llvm::Instruction::Mul:{
+            auto op0 = I.getOperand(0);
+            auto op1 = I.getOperand(1);
+            auto expr0 = value2Expr(*op0);
+            auto expr1 = value2Expr(*op1);
+            return expr0 * expr1;
+        }
+        case llvm::Instruction::UDiv:{
+            auto op0 = I.getOperand(0);
+            auto op1 = I.getOperand(1);
+            auto expr0 = value2Expr(*op0);
+            auto expr1 = value2Expr(*op1);
+            return expr0 / expr1;
+        }
+        case llvm::Instruction::ZExt:{
+            auto op = I.getOperand(0);
+            auto expr = value2Expr(*op);
+            unsigned targetBitwidth = I.getType()->getPrimitiveSizeInBits();
+            return expr.zeroExtend(targetBitwidth - expr.getBitwidth());
+        }
+        default:
+            llvm::errs() << "Error: Unsupported instruction " << I.getOpcodeName() ;
+            I.print(llvm::errs());
+            llvm::errs() << "\n";
+            static int counter = 0;
+            std::string name = "unknown_inst_" + std::to_string(++counter);
+            return SEM.named(name);
+    }
+}
+
+SymbolicExpr GA::value2Expr(const llvm::Value& V) {
+    // V.print(llvm::errs(), false);
+    // llvm::errs() << "\n";
+
+    // constants
+    unsigned bitwidth = V.getType()->getPrimitiveSizeInBits();
+    if (auto* constant = llvm::dyn_cast<llvm::ConstantInt>(&V)) {
+        return SEM.bvVal(constant->getValue().getSExtValue(), bitwidth);
+    }
+    if (auto* constant = llvm::dyn_cast<llvm::ConstantFP>(&V)) {
+        // For floating point, use realVal or convert to bv if needed
+        return SEM.realVal(constant->getValueAPF().convertToDouble());
+    }
+    if (llvm::isa<llvm::Argument>(&V)) {
+        unsigned bitwidth = V.getType()->getPrimitiveSizeInBits();
+        return SEM.bvNamed(V.getName().str(), bitwidth);
+    }
+    
+    // expanded variable
+    if (auto* instruction = llvm::dyn_cast<llvm::Instruction>(&V)) {
+        if (isSolvable(const_cast<llvm::Value*>(&V))) {
+            return inst2Expr(*instruction);
+        }
+        llvm::errs() << "Warning: value2Expr unsolvable phi: " << V.getName() << "\n";
+    }
+    llvm::errs() << "Warning: value2Expr Unsupported value type: " << V.getType()->getTypeID() << "\n";
+    return SEM.named(V.getName().str());
 }
 
 // expand the symbolic count to an expression that only uses program inputs

@@ -30,6 +30,15 @@ public:
     SymbolicExpr operator*(const SymbolicExpr& rhs) const;
     SymbolicExpr operator/(const SymbolicExpr& rhs) const;
     SymbolicExpr operator-() const;
+    SymbolicExpr operator&(const SymbolicExpr& rhs) const;
+
+    SymbolicExpr signedExtend(unsigned additionalBits) const;
+    SymbolicExpr zeroExtend(unsigned additionalBits) const;
+    SymbolicExpr truncate(unsigned additionalBits) const;
+
+    static SymbolicExpr signedMax(const SymbolicExpr& a, const SymbolicExpr& b);
+
+    unsigned getBitwidth() const;
 
     // Access underlying Z3 expr
     const z3::expr& expr() const;
@@ -67,16 +76,14 @@ public:
 
     SymbolicExpr realVal(double val);
 
+    SymbolicExpr bvVal(uint64_t val, unsigned bitwidth);
+    SymbolicExpr bvNamed(const std::string& name, unsigned bitwidth);
+
     // Static API for named symbol
     SymbolicExpr named(const std::string& name);
     SymbolicExpr named32(const std::string& name);
     SymbolicExpr named64(const std::string& name);
-
-    // helper function to convert SCEV to SymbolicExpr
-    SymbolicExpr fromSCEV(const llvm::SCEV& E);
-    SymbolicExpr fromInst(const llvm::Instruction& I);
-    SymbolicExpr fromValue(const llvm::Value& V);
-
+    
 private:
     z3::context ctx_;
 };

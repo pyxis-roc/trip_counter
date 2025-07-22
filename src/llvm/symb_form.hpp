@@ -259,7 +259,13 @@ public:
         void update(shared_ptr<Graph>, pair<SymbolicExpr, SymbolicExpr>);
         void update(shared_ptr<BasicGraph>, pair<SymbolicExpr, SymbolicExpr>);
 
+        // data flow tracking
         optional<SymbolicExpr> getLoopCount(llvm::Loop* loop);
+
+        SymbolicExpr SCEV2Expr(const llvm::SCEV& E);
+        SymbolicExpr inst2Expr(const llvm::Instruction& I);
+        SymbolicExpr value2Expr(const llvm::Value& V);
+
         string getExpandedSCEV(const llvm::SCEV* scev);
         void printRootExpr(const llvm::SCEV&, llvm::raw_ostream&);
         void printExpanded(llvm::Value*, llvm::raw_ostream &);
