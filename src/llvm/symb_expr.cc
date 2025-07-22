@@ -9,12 +9,6 @@
 SymbolicExpr::SymbolicExpr(z3::context& ctx, const z3::expr& expr)
     : ctx_(ctx), expr_(expr) {}
 
-SymbolicExpr::SymbolicExpr(z3::context& ctx, int val)
-    : ctx_(ctx), expr_(ctx.int_val(val)) {}
-
-SymbolicExpr::SymbolicExpr(z3::context& ctx, const std::string& name)
-    : ctx_(ctx), expr_(ctx.int_const(name.c_str())) {}
-
 // Copy/move
 SymbolicExpr::SymbolicExpr(const SymbolicExpr& other)
     : ctx_(other.ctx_), expr_(other.expr_) {}
@@ -92,7 +86,7 @@ SymbolicExprManager::~SymbolicExprManager() {}
 
 // Static API for constants
 SymbolicExpr SymbolicExprManager::zero() {
-    return zero32();
+    return zero64();
 }
 SymbolicExpr SymbolicExprManager::zero32() {
     return SymbolicExpr(ctx_, ctx_.bv_val(0, 32));
@@ -102,7 +96,7 @@ SymbolicExpr SymbolicExprManager::zero64() {
 }
 
 SymbolicExpr SymbolicExprManager::one() {
-    return one32();
+    return one64();
 }
 SymbolicExpr SymbolicExprManager::one32() {
     return SymbolicExpr(ctx_, ctx_.bv_val(1, 32));
@@ -110,10 +104,9 @@ SymbolicExpr SymbolicExprManager::one32() {
 SymbolicExpr SymbolicExprManager::one64() {
     return SymbolicExpr(ctx_, ctx_.bv_val(1, 64));
 }
-
 // Static API for named symbol
 SymbolicExpr SymbolicExprManager::named(const std::string& name) {
-    return named32(name);
+    return named64(name);
 }
 
 SymbolicExpr SymbolicExprManager::named32(const std::string& name) {
@@ -124,9 +117,24 @@ SymbolicExpr SymbolicExprManager::named64(const std::string& name) {
     return SymbolicExpr(ctx_, ctx_.bv_const(name.c_str(), 64));
 }
 
+SymbolicExpr SymbolicExprManager::intVal(int val) {
+    return intVal64(val);
+}
+
+SymbolicExpr SymbolicExprManager::intVal32(int val) {
+    return SymbolicExpr(ctx_, ctx_.bv_val(val, 32));
+}
+SymbolicExpr SymbolicExprManager::intVal64(int val) {
+    return SymbolicExpr(ctx_, ctx_.bv_val(val, 64));
+}
+SymbolicExpr SymbolicExprManager::realVal(double val) {
+    // Use string conversion to avoid ambiguity in real_val overloads
+    return SymbolicExpr(ctx_, ctx_.real_val(std::to_string(val).c_str()));
+}
+
 SymbolicExpr SymbolicExprManager::fromSCEV(const llvm::SCEV& scev) {
-    scev.print(llvm::errs());
-    llvm::errs() << "\n";
+    // scev.print(llvm::errs());
+    // llvm::errs() << "\n";
 
     z3::expr_vector args(ctx_);
     for (const auto& op : scev.operands()) {
@@ -137,9 +145,7 @@ SymbolicExpr SymbolicExprManager::fromSCEV(const llvm::SCEV& scev) {
         case llvm::scAddExpr:{
             z3::expr sum = args.size() > 0 ? args[0] : ctx_.int_val(0);
             for (unsigned i = 1; i < args.size(); ++i) {
-                llvm::errs()<<"first: "<<sum.to_string()<<", second: "<<args[i].to_string()<<"\n";
                 sum = sum + args[i];
-                llvm::errs()<<"result: "<<sum.to_string()<<"\n";
             }
             return SymbolicExpr(ctx_, sum);
         }
@@ -152,16 +158,32 @@ SymbolicExpr SymbolicExprManager::fromSCEV(const llvm::SCEV& scev) {
         }               
         case llvm::scZeroExtend:{
             if (args.size() == 1) {
-                // Zero-extend to 64 bits
-                return SymbolicExpr(ctx_, z3::zext(args[0], 64 - args[0].get_sort().bv_size()));
+                // Get the target bitwidth from the SCEV type
+                unsigned targetBitwidth = scev.getType()->getPrimitiveSizeInBits();
+                unsigned srcBitwidth = args[0].get_sort().bv_size();
+                if (targetBitwidth > srcBitwidth) {
+                    return SymbolicExpr(ctx_, z3::zext(args[0], targetBitwidth - srcBitwidth));
+                } else if (targetBitwidth == srcBitwidth) {
+                    return SymbolicExpr(ctx_, args[0]);
+                } else {
+                    llvm::errs() << "Error: ZeroExtend target bitwidth is less than source bitwidth.\n";
+                }
             }
             llvm::errs() << "Error: ZeroExtend requires exactly one operand.\n";
             break;
         }            
         case llvm::scTruncate:{
             if (args.size() == 1) {
-                // Truncate to 32 bits
-                return SymbolicExpr(ctx_, args[0].extract(31, 0));
+                // Get the target bitwidth from the SCEV type
+                unsigned targetBitwidth = scev.getType()->getPrimitiveSizeInBits();
+                unsigned srcBitwidth = args[0].get_sort().bv_size();
+                if (targetBitwidth < srcBitwidth) {
+                    return SymbolicExpr(ctx_, args[0].extract(targetBitwidth - 1, 0));
+                } else if (targetBitwidth == srcBitwidth) {
+                    return SymbolicExpr(ctx_, args[0]);
+                } else {
+                    llvm::errs() << "Error: Truncate target bitwidth is greater than source bitwidth.\n";
+                }
             }
             llvm::errs() << "Error: Truncate requires exactly one operand.\n";
             break;
@@ -183,25 +205,27 @@ SymbolicExpr SymbolicExprManager::fromSCEV(const llvm::SCEV& scev) {
         }
         case llvm::scConstant:{
             const llvm::SCEVConstant* scevConst = llvm::cast<llvm::SCEVConstant>(&scev);
-            return SymbolicExpr(ctx_, ctx_.int_val(scevConst->getValue()->getSExtValue()));
+            unsigned bitwidth = scevConst->getType()->getPrimitiveSizeInBits();
+            return SymbolicExpr(ctx_, ctx_.bv_val(scevConst->getValue()->getSExtValue(), bitwidth));
         }
         case llvm::scUnknown:{
+            unsigned bitwidth = scev.getType()->getPrimitiveSizeInBits();
             if (const llvm::SCEVUnknown* scevUnknown = llvm::dyn_cast<llvm::SCEVUnknown>(&scev)) {
                 if (const llvm::Value* val = scevUnknown->getValue()) {
                     // Use the value's name if available, otherwise generate a unique name
                     if (val->hasName()) {
-                        return named(val->getName().str());
+                        return SymbolicExpr(ctx_, ctx_.bv_const(val->getName().str().c_str(), bitwidth));
                     } else {
                         static int unknown_counter = 0;
                         std::string name = "unnamed_val_" + std::to_string(++unknown_counter);
-                        return named(name);
+                        return SymbolicExpr(ctx_, ctx_.bv_const(name.c_str(), bitwidth));
                     }
                 }
             }
             llvm::errs() << "Error: SCEVUnknown without value.\n";
             static int unknown_counter = 0;
             std::string name = "unknown_val_" + std::to_string(++unknown_counter);
-            return named(name);
+            return SymbolicExpr(ctx_, ctx_.bv_const(name.c_str(), bitwidth));
         }
         default:{
             llvm::errs() << "Error: Unsupported SCEV type: " << scev.getSCEVType() << "\n";
@@ -220,7 +244,7 @@ SymbolicExpr SymbolicExprManager::fromInst(const llvm::Instruction& I) {
     z3::expr_vector args(ctx_);
     for (const auto& op : I.operands()) {
         if (auto* val = llvm::dyn_cast<llvm::Value>(op)) {
-            args.push_back(fromVal(*val).expr());
+            args.push_back(fromValue(*val).expr());
         }
     }
 
@@ -235,20 +259,19 @@ SymbolicExpr SymbolicExprManager::fromInst(const llvm::Instruction& I) {
             return SymbolicExpr(ctx_, args[0] / args[1]);
         default:
             llvm::errs() << "Error: Unsupported instruction opcode: " << I.getOpcodeName() << "\n";
-            return SymbolicExpr(ctx_, "unknown");
+            static int counter = 0;
+            std::string name = "unknown_inst_" + std::to_string(++counter);
+            return named(name);
     }
 }
 
-SymbolicExpr SymbolicExprManager::fromVal(const llvm::Value& V) {
+SymbolicExpr SymbolicExprManager::fromValue(const llvm::Value& V) {
     // Convert an LLVM value to a symbolic expression
     if (auto* constant = llvm::dyn_cast<llvm::ConstantInt>(&V)) {
-        return SymbolicExpr(ctx_, constant->getValue().getSExtValue());
+        return intVal(constant->getValue().getSExtValue());
     }
     if (auto* constant = llvm::dyn_cast<llvm::ConstantFP>(&V)) {
-        return SymbolicExpr(ctx_, constant->getValueAPF().convertToDouble());
-    }
-    if (auto* constant = llvm::dyn_cast<llvm::ConstantPointerNull>(&V)) {
-        return SymbolicExpr(ctx_, "null");
+        return realVal(constant->getValueAPF().convertToDouble());
     }
     if (auto* instruction = llvm::dyn_cast<llvm::Instruction>(&V)) {
         return fromInst(*instruction);
@@ -256,5 +279,5 @@ SymbolicExpr SymbolicExprManager::fromVal(const llvm::Value& V) {
     llvm::errs() << "Error: Unsupported value type: " << V.getType()->getTypeID() << "\n";
     static int counter = 0;
     std::string name = "unknown_Value_" + std::to_string(++counter);
-    return SymbolicExpr(ctx_, name);
+    return named(name);
 }

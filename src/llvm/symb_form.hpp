@@ -15,12 +15,14 @@
 #include "llvm/IR/Value.h"
 #include <map>
 #include <memory>
-#include <set>
 #include <string>
 #include <vector>
 #include <iostream>
 #include <nlohmann/json.hpp>
+#include <z3++.h>
+#include <optional>
 
+#include "symb_expr.hpp"
 
 using namespace std;
 
@@ -47,10 +49,10 @@ class BasicGraph;
 
 class Program{
 public:
-    vector<shared_ptr<Symbol>> inputs;
+    vector<SymbolicExpr> inputs;
     shared_ptr<Graph> G;
 
-    Program(vector<shared_ptr<Symbol>> inputs, shared_ptr<Graph> G)
+    Program(vector<SymbolicExpr> inputs, shared_ptr<Graph> G)
         : inputs(inputs), G(G) {}
         
 };
@@ -97,12 +99,10 @@ class BasicGraph{
 public:
     string id;
     string name;
-    shared_ptr<Symbol> count;
+    SymbolicExpr count;
 
-    BasicGraph(std::string id, std::string name, std::shared_ptr<Symbol> count)
+    BasicGraph(std::string id, std::string name, SymbolicExpr count)
         : id(id), name(name), count(count) {}
-    BasicGraph(std::string id, std::string name)
-        : id(id), name(name), count(make_shared<Symbol>("1")) {} // default count is 1
 
     // subclass type check
     virtual GraphType getGraphType() const{
@@ -124,13 +124,13 @@ public:
 
 class Branch : public BasicGraph{
 public:
-    shared_ptr<Symbol> trueRatio;
-    shared_ptr<Symbol> falseRatio;
+    SymbolicExpr trueRatio;
+    SymbolicExpr falseRatio;
     shared_ptr<Graph> G1;
     shared_ptr<Graph> G2;
 
-    Branch(shared_ptr<BasicGraph> BG, std::shared_ptr<Symbol> trueRatio, 
-            std::shared_ptr<Symbol> falseRatio, std::shared_ptr<Graph> G1, 
+    Branch(shared_ptr<BasicGraph> BG, SymbolicExpr trueRatio, 
+            SymbolicExpr falseRatio, shared_ptr<Graph> G1, 
             std::shared_ptr<Graph> G2): 
         BasicGraph(BG->id, BG->name, BG->count), 
         trueRatio(trueRatio),
@@ -145,12 +145,12 @@ public:
 
 class Loop : public BasicGraph{
 public:
-    shared_ptr<Symbol> loopCount;
+    SymbolicExpr loopCount;
     shared_ptr<BasicGraph> head; // the loop head basic block sometimes have different execution count to the body
     shared_ptr<Graph> Gb;
 
-    Loop(shared_ptr<BasicGraph> BG, std::shared_ptr<Symbol> loopCount, std::shared_ptr<BasicGraph> head, 
-            std::shared_ptr<Graph> Gb): 
+    Loop(shared_ptr<BasicGraph> BG, SymbolicExpr loopCount, shared_ptr<BasicGraph> head, 
+            shared_ptr<Graph> Gb): 
         BasicGraph(BG->id, BG->name, BG->count), 
         loopCount(loopCount), 
         head(head),
@@ -172,7 +172,8 @@ public:
     llvm::LoopInfo& LI;
     llvm::PostDominatorTree& PDT;
     llvm::ScalarEvolution& SE;
-    
+    SymbolicExprManager SEM;
+
     // map basicblock to the twin BasicGraph
     std::map<shared_ptr<BasicGraph>, llvm::BasicBlock*> graph2bb;
     void record(shared_ptr<BasicGraph>, llvm::BasicBlock*);
@@ -187,14 +188,14 @@ public:
     //     startBB: the starting basic block of the graph 
     //     endBB: the (first) basic block that is not included in the graph,
     //            it can be nullptr, which means the graph goes freely without constraint
-    shared_ptr<Graph> createGraph(shared_ptr<Symbol> initCount, 
+    shared_ptr<Graph> createGraph(SymbolicExpr initCount, 
         llvm::BasicBlock* startBB, llvm::BasicBlock* endBB = nullptr);
 
     // reduce the first basic graph, then find the next graph head
     llvm::BasicBlock* nextGraphHead(GraphType type, llvm::BasicBlock* startBB);
 
     // instantiate basic graph to a specific subgraphs
-    shared_ptr<BasicGraph> createBasicGraph(shared_ptr<Symbol> initCount, 
+    shared_ptr<BasicGraph> createBasicGraph(SymbolicExpr initCount, 
         llvm::BasicBlock* startBB, llvm::BasicBlock* endBB = nullptr);
 
     GraphType getGraphType(llvm::BasicBlock* startBB, llvm::BasicBlock* endBB = nullptr);
@@ -211,8 +212,8 @@ public:
 
     // create a loop head graph, which is a basic graph that contains the loop head
     GraphType getLoopHeadType(llvm::BasicBlock* startBB, llvm::BasicBlock* endBB);
-    
-    shared_ptr<BasicGraph> getLoopHeadGraph(shared_ptr<Symbol> initCount, shared_ptr<Symbol> bodyCount,
+
+    shared_ptr<BasicGraph> getLoopHeadGraph(SymbolicExpr initCount, SymbolicExpr bodyCount,
     llvm::BasicBlock* startBB, llvm::BasicBlock* endBB = nullptr);
 
     
@@ -226,15 +227,16 @@ public:
         public:
         llvm::LoopInfo& LI;
         llvm::ScalarEvolution& SE;
+        SymbolicExprManager& SEM;
         shared_ptr<Program> P;
         std::map<shared_ptr<BasicGraph>, llvm::BasicBlock *> graph2bb;
 
         // base factor of a control flow, which represent the execution count of this path
-        std::map<std::pair<llvm::BasicBlock*, llvm::BasicBlock*>, shared_ptr<Symbol>> baseFactor;
+        std::map<std::pair<llvm::BasicBlock*, llvm::BasicBlock*>, SymbolicExpr> baseFactor;
 
-        Analysis(llvm::LoopInfo& LI, llvm::ScalarEvolution& SE, shared_ptr<Program> P, 
+        Analysis(llvm::LoopInfo& LI, llvm::ScalarEvolution& SE, SymbolicExprManager& SEM, shared_ptr<Program> P, 
                 std::map<shared_ptr<BasicGraph>, llvm::BasicBlock *> graph2bb):
-                LI(LI), SE(SE), P(P), graph2bb(graph2bb){
+                LI(LI), SE(SE), SEM(SEM), P(P), graph2bb(graph2bb){
             prepareBaseFactor(P);
             refine(P->G);
         }
@@ -244,8 +246,8 @@ public:
         void traverse(shared_ptr<Graph> current, vector<shared_ptr<BasicGraph>>& stack);
         void traverse(shared_ptr<BasicGraph> current, vector<shared_ptr<BasicGraph>>& stack);
 
-        void addFactor(llvm::BasicBlock*, llvm::BasicBlock*, shared_ptr<Symbol>);
-        shared_ptr<Symbol> getFactor(llvm::BasicBlock*, llvm::BasicBlock*);
+        void addFactor(llvm::BasicBlock*, llvm::BasicBlock*, SymbolicExpr);
+        optional<SymbolicExpr> getFactor(llvm::BasicBlock*, llvm::BasicBlock*);
 
         // solve for loop count and true ratio //
 
@@ -254,17 +256,17 @@ public:
         void refine(shared_ptr<BasicGraph>);
 
         // replace original string with the expanded one
-        void update(shared_ptr<Graph>, pair<string, string>);
-        void update(shared_ptr<BasicGraph>, pair<string, string>);
+        void update(shared_ptr<Graph>, pair<SymbolicExpr, SymbolicExpr>);
+        void update(shared_ptr<BasicGraph>, pair<SymbolicExpr, SymbolicExpr>);
 
-        shared_ptr<Symbol> getLoopCount(llvm::Loop* loop);
+        optional<SymbolicExpr> getLoopCount(llvm::Loop* loop);
         string getExpandedSCEV(const llvm::SCEV* scev);
         void printRootExpr(const llvm::SCEV&, llvm::raw_ostream&);
         void printExpanded(llvm::Value*, llvm::raw_ostream &);
         void printExpandedPHI(llvm::Value*, llvm::raw_ostream &);
-        bool isSolvablePHI(llvm::Value*);
+        bool isSolvable(llvm::Value*);
 
-        shared_ptr<Symbol> getTrueRatio(llvm::BasicBlock*);
+        optional<SymbolicExpr> getTrueRatio(llvm::BasicBlock*);
     };
 
     // some utility functions

@@ -16,8 +16,6 @@ class SymbolicExpr {
 public:
     // Constructors
     SymbolicExpr(z3::context& ctx, const z3::expr& expr);
-    SymbolicExpr(z3::context& ctx, int val); // constant integer
-    SymbolicExpr(z3::context& ctx, const std::string& name); // named symbol
 
     // Copy/move
     SymbolicExpr(const SymbolicExpr& other);
@@ -63,6 +61,12 @@ public:
     SymbolicExpr one32();
     SymbolicExpr one64();
 
+    SymbolicExpr intVal(int val);
+    SymbolicExpr intVal32(int val);
+    SymbolicExpr intVal64(int val);
+
+    SymbolicExpr realVal(double val);
+
     // Static API for named symbol
     SymbolicExpr named(const std::string& name);
     SymbolicExpr named32(const std::string& name);
@@ -71,7 +75,7 @@ public:
     // helper function to convert SCEV to SymbolicExpr
     SymbolicExpr fromSCEV(const llvm::SCEV& E);
     SymbolicExpr fromInst(const llvm::Instruction& I);
-    SymbolicExpr fromVal(const llvm::Value& V);
+    SymbolicExpr fromValue(const llvm::Value& V);
 
 private:
     z3::context ctx_;
