@@ -107,6 +107,8 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    GB.SEM.dump(); // Dump symbolic expressions to file
+
     // show the symbolic form or output as JSON
     if (!OutputJsonFilename.empty()) {
         std::ofstream jsonOut(OutputJsonFilename);

@@ -7,9 +7,8 @@
 */
 
 #include "z3++.h"
-#include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/IR/Instruction.h"
-#include "llvm/IR/Value.h"
+#include "llvm/Analysis/ScalarEvolutionExpressions.h"
 
 
 class SymbolicExpr {
@@ -36,7 +35,18 @@ public:
     SymbolicExpr zeroExtend(unsigned additionalBits) const;
     SymbolicExpr truncate(unsigned additionalBits) const;
 
-    static SymbolicExpr signedMax(const SymbolicExpr& a, const SymbolicExpr& b);
+    static SymbolicExpr smax(const SymbolicExpr& a, const SymbolicExpr& b);
+    static SymbolicExpr eq(const SymbolicExpr& a, const SymbolicExpr& b);
+    static SymbolicExpr ne(const SymbolicExpr& a, const SymbolicExpr& b);
+    static SymbolicExpr ult(const SymbolicExpr& a, const SymbolicExpr& b);
+    static SymbolicExpr ule(const SymbolicExpr& a, const SymbolicExpr& b);
+    static SymbolicExpr ugt(const SymbolicExpr& a, const SymbolicExpr& b);
+    static SymbolicExpr uge(const SymbolicExpr& a, const SymbolicExpr& b);
+    static SymbolicExpr slt(const SymbolicExpr& a, const SymbolicExpr& b);
+    static SymbolicExpr sle(const SymbolicExpr& a, const SymbolicExpr& b);
+    static SymbolicExpr sgt(const SymbolicExpr& a, const SymbolicExpr& b);
+    static SymbolicExpr sge(const SymbolicExpr& a, const SymbolicExpr& b);
+    static SymbolicExpr select(const SymbolicExpr& cond, const SymbolicExpr& trueExpr, const SymbolicExpr& falseExpr);
 
     unsigned getBitwidth() const;
 
@@ -75,6 +85,7 @@ public:
     SymbolicExpr intVal64(int val);
 
     SymbolicExpr realVal(double val);
+    SymbolicExpr realNamed(const std::string& name);
 
     SymbolicExpr bvVal(uint64_t val, unsigned bitwidth);
     SymbolicExpr bvNamed(const std::string& name, unsigned bitwidth);
@@ -83,7 +94,16 @@ public:
     SymbolicExpr named(const std::string& name);
     SymbolicExpr named32(const std::string& name);
     SymbolicExpr named64(const std::string& name);
+
+    // Helper function for analysis related construction
+    SymbolicExpr symbTrueRatio(const std::string& name);
+    SymbolicExpr symbLoopCount(const std::string& name);
+    SymbolicExpr symbUnknown(const std::string& name);
+    SymbolicExpr bvInst(const llvm::Instruction& I);
+    SymbolicExpr bvValue(const llvm::Value& V);
+    SymbolicExpr bvSCEV(const llvm::SCEV& scev);
     
+    void dump();
 private:
     z3::context ctx_;
 };

@@ -3,6 +3,7 @@
 #include "utils.hpp"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"
+#include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Value.h"
 #include "llvm/Support/Casting.h"
@@ -57,10 +58,27 @@ void Symbol::show(std::ostream& os) const {
     os << literal << std::endl;
 }
 
-void GraphBuilder::record(shared_ptr<BasicGraph> graph, llvm::BasicBlock* bb){
+void GraphBuilder::record(shared_ptr<BasicGraph> graph, const llvm::BasicBlock* bb){
     if (graph2bb.find(graph) == graph2bb.end()){
         graph2bb[graph] = bb;
     }
+    if (bb2graph.find(bb) == bb2graph.end()){
+        bb2graph[bb] = vector<shared_ptr<BasicGraph>>{graph};
+    }
+    else{
+        bb2graph[bb].push_back(graph);
+    }
+}
+
+std::shared_ptr<BasicGraph> GraphBuilder::bbTwin(const llvm::BasicBlock* bb, GraphType type) {
+    if (bb2graph.find(bb) != bb2graph.end()) {
+        for (const auto& graph : bb2graph[bb]) {
+            if (graph->getGraphType() == type) {
+                return graph;
+            }
+        }
+    }
+    return nullptr;
 }
 
 shared_ptr<Program> GraphBuilder::createProgram(llvm::Function * F){
@@ -69,8 +87,17 @@ shared_ptr<Program> GraphBuilder::createProgram(llvm::Function * F){
     auto argList = std::vector<SymbolicExpr>();
     for (; args != F->arg_end(); ++args) {
         auto argName = getName(args);
-        auto symbol = SEM.named(argName);
-        argList.push_back(symbol);
+        int bitwidth = args->getType()->getIntegerBitWidth();
+        if (bitwidth == 0) {
+            llvm::errs() << "Warning: Argument " << argName << " has zero bitwidth, skipping\n";
+            auto symbol = SEM.symbUnknown(argName);
+            argList.push_back(symbol);
+            continue;
+        }
+        else{
+            auto symbol = SEM.bvNamed(argName, bitwidth);
+            argList.push_back(symbol);
+        }
     }
 
     auto graph = createGraph(SEM.one(), &F->getEntryBlock());
@@ -210,7 +237,7 @@ shared_ptr<BasicGraph> GraphBuilder::createBasicGraph(SymbolicExpr count,
         default:
             llvm::errs() << "Error: GraphBuilder::createBasicGraph: Unknown graph type for block " << name << "\n";
             return nullptr;
-    } 
+    }
     return graph;
 }
 
@@ -280,6 +307,9 @@ shared_ptr<BasicBlock> GraphBuilder:: createBasicBlock(std::shared_ptr<BasicGrap
         llvm::BasicBlock* startBB, llvm::BasicBlock* endBB){
   
     if (!startBB || startBB == endBB) return nullptr;
+    if (auto twin = bbTwin(startBB, GraphType::BasicBlock)) {
+        return std::static_pointer_cast<BasicBlock>(twin);
+    }
 
     auto graph = make_shared<BasicBlock>(BasicBlock(BG));
     record(graph, startBB);
@@ -290,9 +320,12 @@ shared_ptr<Branch> GraphBuilder::createBranch(std::shared_ptr<BasicGraph> BG,
         llvm::BasicBlock* startBB, llvm::BasicBlock* endBB){
 
     if (!startBB || startBB == endBB) return nullptr;
+    if (auto twin = bbTwin(startBB, GraphType::Branch)) {
+        return std::static_pointer_cast<Branch>(twin);
+    }
 
     auto trueRatio_literal = "TR_" + getName(startBB);
-    auto trueRatio = SEM.named(trueRatio_literal);
+    auto trueRatio = SEM.symbTrueRatio(trueRatio_literal);
     auto falseRatio = SEM.one() - trueRatio;
 
     auto incoming_count = BG->count;
@@ -429,6 +462,9 @@ shared_ptr<Loop> GraphBuilder::createLoop(std::shared_ptr<BasicGraph> BG,
         llvm::BasicBlock* startBB, llvm::BasicBlock* endBB){
 
     if (!startBB || startBB == endBB) return nullptr;
+    if (auto twin = bbTwin(startBB, GraphType::Loop)) {
+        return std::static_pointer_cast<Loop>(twin);
+    }
 
     auto loop = LI.getLoopFor(startBB);
     if (!loop) {
@@ -443,8 +479,8 @@ shared_ptr<Loop> GraphBuilder::createLoop(std::shared_ptr<BasicGraph> BG,
     }
 
     auto incoming_count = BG->count;
-    auto bodyCount = SEM.named("LC_" + getName(loop));
-    
+    auto bodyCount = SEM.symbLoopCount("LC_" + getName(loop));
+
     auto headGraph = getLoopHeadGraph(incoming_count, bodyCount, startBB, exitBlock);
     auto headType = headGraph->getGraphType();
 
@@ -481,12 +517,12 @@ void GA::prepareBaseFactor(shared_ptr<Program>P){
     traverse(P->G, stack);
 }
 
-optional<SymbolicExpr> GA::getFactor(llvm::BasicBlock* from, llvm::BasicBlock* to){
+optional<SymbolicExpr> GA::getFactor(const llvm::BasicBlock* from, const llvm::BasicBlock* to){
     auto p = make_pair(from, to);
     return baseFactor.at(p);
 }
 
-void GA::addFactor(llvm::BasicBlock* from, llvm::BasicBlock* to, SymbolicExpr factor){
+void GA::addFactor(const llvm::BasicBlock* from, const llvm::BasicBlock* to, SymbolicExpr factor){
     auto p = make_pair(from, to);
     baseFactor.emplace(p, factor);
 }
@@ -548,9 +584,9 @@ void GA::refine(shared_ptr<BasicGraph> BG){
             refine(branch->G1);
             refine(branch->G2);
             if(auto TRexpanded = getTrueRatio(graph2bb[branch])){
-                // llvm::errs() << branch->trueRatio.str() << '\n';
-                // llvm::errs() << TRexpanded->str() << '\n';
-                // update(branch, make_pair(branch->trueRatio->literal, TRexpanded->literal));
+                // llvm::errs() << "original: " << branch->trueRatio.expr().to_string() <<'\n';
+                // llvm::errs() << "expanded: " << TRexpanded.value().expr().to_string() << "\n";
+                update(branch, make_pair(branch->trueRatio, TRexpanded.value()));
             }
             break;
         }
@@ -608,12 +644,12 @@ void GA::update(shared_ptr<BasicGraph> BG, pair<SymbolicExpr, SymbolicExpr> subs
     }
 }
 
-optional<SymbolicExpr> GA::getTrueRatio(llvm::BasicBlock* bb){
+optional<SymbolicExpr> GA::getTrueRatio(const llvm::BasicBlock* bb){
     if (!bb) {
         llvm::errs() << "Error: getTrueRatio: BasicBlock is null\n";
         return std::nullopt;
     }
-    llvm::Instruction* term = bb->getTerminator();
+    const llvm::Instruction* term = bb->getTerminator();
     if (!term) {
         llvm::errs() << "Error: getTrueRatio: Terminator is null for block " << GraphBuilder::getName(bb) << "\n";
         return std::nullopt;
@@ -623,11 +659,9 @@ optional<SymbolicExpr> GA::getTrueRatio(llvm::BasicBlock* bb){
         return std::nullopt;
     }
 
-    std::string name;
-    llvm::raw_string_ostream rso(name);
-    printExpanded(term, rso);
-    rso.flush();
-    return SEM.named("TR_" + name);
+    auto cond = inst2Expr(*term); //1-bit vector return
+    return cond.zeroExtend(63); // Convert 1-bit condition to 64-bit vector
+    return cond;
 }
 
 optional<SymbolicExpr> GA::getLoopCount(llvm::Loop* loop){
@@ -648,7 +682,7 @@ optional<SymbolicExpr> GA::getLoopCount(llvm::Loop* loop){
         llvm::errs() << "Warning: getLoopCount: Could not compute backedge count for loop " << getName(loop) << "\n";
         // Fallback to symbolic name
         auto loopCount_literal = "LC_" + getName(loop);
-        return SEM.named(loopCount_literal);
+        return SEM.symbLoopCount(loopCount_literal);
     }
 
     // SCEV gives backedge count, but we want trip count = backedge count + 1
@@ -737,7 +771,7 @@ SymbolicExpr GA::SCEV2Expr(const llvm::SCEV& scev) {
         }
         case llvm::scSMaxExpr:{
             if (args.size() == 2) {
-                return SymbolicExpr::signedMax(args[0], args[1]);
+                return SymbolicExpr::smax(args[0], args[1]);
             }
             llvm::errs() << "Error: SMaxExpr requires exactly two operands.\n";
             break;
@@ -755,9 +789,6 @@ SymbolicExpr GA::SCEV2Expr(const llvm::SCEV& scev) {
                 }
             }
             llvm::errs() << "Error: SCEVUnknown without value.\n";
-            static int unknown_counter = 0;
-            std::string name = "unknown_val_" + std::to_string(++unknown_counter);
-            return SEM.bvNamed(name, bitwidth);
         }
         default:{
             llvm::errs() << "Error: Unsupported SCEV type: " << scev.getSCEVType() << "\n";
@@ -765,12 +796,13 @@ SymbolicExpr GA::SCEV2Expr(const llvm::SCEV& scev) {
             llvm::errs() << "\n";
         }
     }
-    static int counter = 0;
-    std::string name = "unknown_" + std::to_string(++counter);
-    return SEM.named(name);
+    return SEM.bvSCEV(scev);
 }
 
 SymbolicExpr GA::inst2Expr(const llvm::Instruction& I) {
+    // I.print(llvm::errs());
+    // llvm::errs() << "\n";
+
     auto & ctx_ = SEM.context();
 
     switch (I.getOpcode()) {
@@ -788,9 +820,9 @@ SymbolicExpr GA::inst2Expr(const llvm::Instruction& I) {
                     phi->printAsOperand(llvm::errs(), false);
                     llvm::errs() << " from basic block: " << GraphBuilder::getName(incomingBB) << "\n";
                     phi->printAsOperand(llvm::errs(), false);
-                    static int counter = 0;
-                    std::string name = "unknown_phi_" + std::to_string(++counter);
-                    sum = sum + SEM.named(name);
+
+                    auto unknownPhi = SEM.bvInst(I);
+                    sum = sum + unknownPhi;
                 }
             }
             return sum;
@@ -836,14 +868,65 @@ SymbolicExpr GA::inst2Expr(const llvm::Instruction& I) {
             unsigned targetBitwidth = I.getType()->getPrimitiveSizeInBits();
             return expr.zeroExtend(targetBitwidth - expr.getBitwidth());
         }
+        case llvm::Instruction::SExt:{
+            auto op = I.getOperand(0);
+            auto expr = value2Expr(*op);
+            unsigned targetBitwidth = I.getType()->getPrimitiveSizeInBits();
+            return expr.signedExtend(targetBitwidth - expr.getBitwidth());
+        }
+        case llvm::Instruction::Br:{
+            auto cond = I.getOperand(0);
+            return value2Expr(*cond);
+        }
+        case llvm::Instruction::ICmp:{
+            auto op0 = I.getOperand(0);
+            auto op1 = I.getOperand(1);
+            auto expr0 = value2Expr(*op0);
+            auto expr1 = value2Expr(*op1);
+            
+            auto cmpInst = llvm::cast<llvm::ICmpInst>(&I);
+            switch (cmpInst->getPredicate()) {
+                case llvm::CmpInst::ICMP_EQ:
+                    return SymbolicExpr::eq(expr0, expr1);
+                case llvm::CmpInst::ICMP_NE:
+                    return SymbolicExpr::ne(expr0, expr1);
+                case llvm::CmpInst::ICMP_ULT:
+                    return SymbolicExpr::ult(expr0, expr1);
+                case llvm::CmpInst::ICMP_ULE:
+                    return SymbolicExpr::ule(expr0, expr1);
+                case llvm::CmpInst::ICMP_UGT:
+                    return SymbolicExpr::ugt(expr0, expr1);
+                case llvm::CmpInst::ICMP_UGE:
+                    return SymbolicExpr::uge(expr0, expr1);
+                case llvm::CmpInst::ICMP_SLT:
+                    return SymbolicExpr::slt(expr0, expr1);
+                case llvm::CmpInst::ICMP_SLE:
+                    return SymbolicExpr::sle(expr0, expr1);
+                case llvm::CmpInst::ICMP_SGT:
+                    return SymbolicExpr::sgt(expr0, expr1);
+                case llvm::CmpInst::ICMP_SGE:
+                    return SymbolicExpr::sge(expr0, expr1);
+                default: {
+                    llvm::errs() << "Warning: inst2Expr ICmp unsupported predicate: " << cmpInst->getPredicate() << "\n";
+                    return SEM.bvInst(I);
+                }
+            }
+        }
+        case llvm::Instruction::Select:{
+            auto cond = I.getOperand(0);
+            auto trueVal = I.getOperand(1);
+            auto falseVal = I.getOperand(2);
+            auto condExpr = value2Expr(*cond);
+            auto trueExpr = value2Expr(*trueVal);
+            auto falseExpr = value2Expr(*falseVal);
+            return SymbolicExpr::select(condExpr, trueExpr, falseExpr);
+        }
         default:
-            llvm::errs() << "Error: Unsupported instruction " << I.getOpcodeName() ;
+            llvm::errs() << "Warning: inst2Expr Unsupported instruction " << I.getOpcodeName() ;
             I.print(llvm::errs());
             llvm::errs() << "\n";
-            static int counter = 0;
-            std::string name = "unknown_inst_" + std::to_string(++counter);
-            return SEM.named(name);
     }
+    return SEM.bvInst(I);
 }
 
 SymbolicExpr GA::value2Expr(const llvm::Value& V) {
@@ -860,8 +943,7 @@ SymbolicExpr GA::value2Expr(const llvm::Value& V) {
         return SEM.realVal(constant->getValueAPF().convertToDouble());
     }
     if (llvm::isa<llvm::Argument>(&V)) {
-        unsigned bitwidth = V.getType()->getPrimitiveSizeInBits();
-        return SEM.bvNamed(V.getName().str(), bitwidth);
+        return SEM.bvValue(V);
     }
     
     // expanded variable
@@ -872,7 +954,7 @@ SymbolicExpr GA::value2Expr(const llvm::Value& V) {
         llvm::errs() << "Warning: value2Expr unsolvable phi: " << V.getName() << "\n";
     }
     llvm::errs() << "Warning: value2Expr Unsupported value type: " << V.getType()->getTypeID() << "\n";
-    return SEM.named(V.getName().str());
+    return SEM.bvValue(V); 
 }
 
 // expand the symbolic count to an expression that only uses program inputs
@@ -933,13 +1015,13 @@ void GA::printRootExpr(const llvm::SCEV& E, llvm::raw_ostream &os){
     }
 }
 
-void GA::printExpanded(llvm::Value* I, llvm::raw_ostream &os){
+void GA::printExpanded(const llvm::Value* I, llvm::raw_ostream &os){
     if (!isSolvable(I)){
         I->printAsOperand(os, false);
         return;
     }
     //expand cases
-    if(llvm::Instruction* i = llvm::dyn_cast<llvm::Instruction>(I)){
+    if(const llvm::Instruction* i = llvm::dyn_cast<llvm::Instruction>(I)){
         if (i->getOpcode() == llvm::Instruction::PHI){
             printExpandedPHI(i, os);
             return;
@@ -967,7 +1049,7 @@ void GA::printExpanded(llvm::Value* I, llvm::raw_ostream &os){
             break;
         }
         bool first = true;
-        for (llvm::Use& opr : i->operands()) {
+        for (const llvm::Use& opr : i->operands()) {
             if (!first) os << ", ";
             first = false;
             printExpanded(llvm::dyn_cast<llvm::Value>(opr.get()), os);
@@ -980,13 +1062,13 @@ void GA::printExpanded(llvm::Value* I, llvm::raw_ostream &os){
     }
 }
 
-void GA::printExpandedPHI(llvm::Value* I, llvm::raw_ostream & os){
+void GA::printExpandedPHI(const llvm::Value* I, llvm::raw_ostream & os){
     if (!I) {
         llvm::errs() << "Error: printExpandedPHI: Value is null\n";
         os << "unknown";
         return;
     }
-    llvm::PHINode* phi = llvm::dyn_cast<llvm::PHINode>(I);
+    const llvm::PHINode* phi = llvm::dyn_cast<llvm::PHINode>(I);
     if (!phi) {
         llvm::errs() << "Error: printExpandedPHI: Not a PHI node\n";
         os << "unknown";
@@ -996,7 +1078,7 @@ void GA::printExpandedPHI(llvm::Value* I, llvm::raw_ostream & os){
     for (unsigned i = 0; i < phi->getNumIncomingValues(); ++i) {
         if (i > 0) os << ", ";
         llvm::BasicBlock* incomingBB = phi->getIncomingBlock(i);
-        llvm::BasicBlock* currentBB = phi->getParent();
+        const llvm::BasicBlock* currentBB = phi->getParent();
         llvm::Value* incomingVal = phi->getIncomingValue(i);
         if (auto baseFactor = getFactor(incomingBB, currentBB)) {
             os << "scMul(";
@@ -1014,12 +1096,12 @@ void GA::printExpandedPHI(llvm::Value* I, llvm::raw_ostream & os){
     os << ")";
 }
 
-bool GA::isSolvable(llvm::Value* v){
+bool GA::isSolvable(const llvm::Value* v){
     if (!v) return false;
-    std::set<llvm::Value*> visited;
-    std::set<llvm::Value*> recStack;
+    std::set<const llvm::Value*> visited;
+    std::set<const llvm::Value*> recStack;
 
-    std::function<bool(llvm::Value*)> hasCircularDependency = [&](llvm::Value* V) -> bool {
+    std::function<bool(const llvm::Value*)> hasCircularDependency = [&](const llvm::Value* V) -> bool {
         if (recStack.count(V)) return true;
         if (visited.count(V)) return false;
 
@@ -1140,7 +1222,7 @@ void GraphViewer::showLoop(shared_ptr<Loop> L, std::ostream& os, int indent) {
     showGraph(L->Gb, os, indent + 2);
 }
 
-std::string GraphBuilder::getName(llvm::BasicBlock* BB) {
+std::string GraphBuilder::getName(const llvm::BasicBlock* BB) {
     if(!BB) {
         return "null";
     }
@@ -1150,7 +1232,7 @@ std::string GraphBuilder::getName(llvm::BasicBlock* BB) {
     return rso.str();
 }
 
-std::string GraphBuilder::getName(llvm::Argument* arg) {
+std::string GraphBuilder::getName(const llvm::Argument* arg) {
     if (!arg) {
         return "null";
     }
@@ -1160,7 +1242,7 @@ std::string GraphBuilder::getName(llvm::Argument* arg) {
     return rso.str();
 }
 
-std::string GraphBuilder::getName(llvm::Loop* loop) {
+std::string GraphBuilder::getName(const llvm::Loop* loop) {
     if(!loop) {
         return "null";
     }

@@ -175,8 +175,10 @@ public:
     SymbolicExprManager SEM;
 
     // map basicblock to the twin BasicGraph
-    std::map<shared_ptr<BasicGraph>, llvm::BasicBlock*> graph2bb;
-    void record(shared_ptr<BasicGraph>, llvm::BasicBlock*);
+    std::map<shared_ptr<BasicGraph>, const llvm::BasicBlock*> graph2bb;
+    std::map<const llvm::BasicBlock*, vector<shared_ptr<BasicGraph>>> bb2graph;
+    void record(shared_ptr<BasicGraph>, const llvm::BasicBlock*);
+    std::shared_ptr<BasicGraph> bbTwin(const llvm::BasicBlock* bb, GraphType type);
 
     GraphBuilder(llvm::LoopInfo& LI, llvm::PostDominatorTree& PDT, llvm::ScalarEvolution& SE) 
         : LI(LI), PDT(PDT), SE(SE) {}
@@ -229,13 +231,13 @@ public:
         llvm::ScalarEvolution& SE;
         SymbolicExprManager& SEM;
         shared_ptr<Program> P;
-        std::map<shared_ptr<BasicGraph>, llvm::BasicBlock *> graph2bb;
+        std::map<shared_ptr<BasicGraph>, const llvm::BasicBlock *> graph2bb;
 
         // base factor of a control flow, which represent the execution count of this path
-        std::map<std::pair<llvm::BasicBlock*, llvm::BasicBlock*>, SymbolicExpr> baseFactor;
+        std::map<std::pair<const llvm::BasicBlock*, const llvm::BasicBlock*>, SymbolicExpr> baseFactor;
 
         Analysis(llvm::LoopInfo& LI, llvm::ScalarEvolution& SE, SymbolicExprManager& SEM, shared_ptr<Program> P, 
-                std::map<shared_ptr<BasicGraph>, llvm::BasicBlock *> graph2bb):
+                std::map<shared_ptr<BasicGraph>, const llvm::BasicBlock *> graph2bb):
                 LI(LI), SE(SE), SEM(SEM), P(P), graph2bb(graph2bb){
             prepareBaseFactor(P);
             refine(P->G);
@@ -246,8 +248,8 @@ public:
         void traverse(shared_ptr<Graph> current, vector<shared_ptr<BasicGraph>>& stack);
         void traverse(shared_ptr<BasicGraph> current, vector<shared_ptr<BasicGraph>>& stack);
 
-        void addFactor(llvm::BasicBlock*, llvm::BasicBlock*, SymbolicExpr);
-        optional<SymbolicExpr> getFactor(llvm::BasicBlock*, llvm::BasicBlock*);
+        void addFactor(const llvm::BasicBlock*, const llvm::BasicBlock*, SymbolicExpr);
+        optional<SymbolicExpr> getFactor(const llvm::BasicBlock*, const llvm::BasicBlock*);
 
         // solve for loop count and true ratio //
 
@@ -268,18 +270,18 @@ public:
 
         string getExpandedSCEV(const llvm::SCEV* scev);
         void printRootExpr(const llvm::SCEV&, llvm::raw_ostream&);
-        void printExpanded(llvm::Value*, llvm::raw_ostream &);
-        void printExpandedPHI(llvm::Value*, llvm::raw_ostream &);
-        bool isSolvable(llvm::Value*);
+        void printExpanded(const llvm::Value*, llvm::raw_ostream &);
+        void printExpandedPHI(const llvm::Value*, llvm::raw_ostream &);
+        bool isSolvable(const llvm::Value*);
 
-        optional<SymbolicExpr> getTrueRatio(llvm::BasicBlock*);
+        optional<SymbolicExpr> getTrueRatio(const llvm::BasicBlock*);
     };
 
     // some utility functions
     
-    static std::string getName(llvm::BasicBlock*);
-    static std::string getName(llvm::Argument*);
-    static std::string getName(llvm::Loop*);
+    static std::string getName(const llvm::BasicBlock*);
+    static std::string getName(const llvm::Argument*);
+    static std::string getName(const llvm::Loop*);
 };
 
 class GraphViewer{
