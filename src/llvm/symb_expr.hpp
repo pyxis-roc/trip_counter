@@ -9,6 +9,7 @@
 #include "z3++.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
+#include <optional>
 
 
 class SymbolicExpr {
@@ -23,7 +24,6 @@ public:
     SymbolicExpr& operator=(SymbolicExpr&& other) noexcept;
 
     // Manipulation
-    SymbolicExpr simplify() const;
     SymbolicExpr operator+(const SymbolicExpr& rhs) const;
     SymbolicExpr operator-(const SymbolicExpr& rhs) const;
     SymbolicExpr operator*(const SymbolicExpr& rhs) const;
@@ -57,7 +57,10 @@ public:
     std::string str() const;
 
     // substitution to replace symbolic variables with symbolic expressions
-    bool substitude(const SymbolicExpr& original, const SymbolicExpr& with);
+    void substitude(const SymbolicExpr& original, const SymbolicExpr& with);
+    void substitude(const std::vector<SymbolicExpr>& inputs, const std::vector<int>& inputValues);
+
+    void simplify();
 
 private:
     z3::context& ctx_;
@@ -95,6 +98,7 @@ public:
     SymbolicExpr named32(const std::string& name);
     SymbolicExpr named64(const std::string& name);
 
+    
     // Helper function for analysis related construction
     SymbolicExpr symbTrueRatio(const std::string& name);
     SymbolicExpr symbLoopCount(const std::string& name);
@@ -103,7 +107,13 @@ public:
     SymbolicExpr bvValue(const llvm::Value& V);
     SymbolicExpr bvSCEV(const llvm::SCEV& scev);
     
-    void dump();
+    // find corresponding symbolic expression created for instruction, value or SCEV
+    std::optional<SymbolicExpr> findInst(const llvm::Instruction& I);
+    std::optional<SymbolicExpr> findValue(const llvm::Value& V);
+    std::optional<SymbolicExpr> findSCEV(const llvm::SCEV& scev);
+
+    void substitude(const std::vector<SymbolicExpr>& inputs, const std::vector<int>& inputValues);
+
 private:
     z3::context ctx_;
 };

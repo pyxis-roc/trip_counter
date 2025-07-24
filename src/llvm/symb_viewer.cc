@@ -33,12 +33,19 @@ static cl::opt<std::string> OutputJsonFilename(
     cl::value_desc("filename"),
     cl::init("")
 );
+static cl::opt<std::string> SubstitutionFile(
+    "subs",
+    cl::desc("Substitution JSON file to apply for symbolic expressions"),
+    cl::value_desc("filename"),
+    cl::init("")
+);
 llvm::cl::opt<bool> Help("h", llvm::cl::desc("Print help message"));
 
 void printHelpMessage() {
     llvm::outs() << "Usage: symb_viewer <input LLVM IR file> <function name to analyze> [options]\n";
     llvm::outs() << "Options:\n";
     llvm::outs() << "  -json=<filename>   Output symbolic form as JSON to the specified file\n";
+    llvm::outs() << "  -subs=<filename>   Substitution JSON file to apply for symbolic expressions\n";
     llvm::outs() << "  -h                 Print help message\n";
     llvm::outs() << "\n";
     llvm::outs() << "Example:\n";
@@ -107,7 +114,41 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    GB.SEM.dump(); // Dump symbolic expressions to file
+    // Apply substitutions if provided
+    if (!SubstitutionFile.empty()) {
+        std::ifstream subsFile(SubstitutionFile);
+        if (!subsFile.is_open()) {
+            errs() << "Failed to open substitution file: " << SubstitutionFile << "\n";
+            return 1;
+        }
+        nlohmann::json subsJson;
+        subsFile >> subsJson;
+
+        vector<SymbolicExpr>inputs;
+        vector<int> inputValues;
+        for (auto &input : program->inputs) {
+            if (subsJson.contains(input.str())) {
+                inputs.push_back(input);
+                auto sub = subsJson[input.str()];
+                if (sub.is_number_integer()) {
+                    inputValues.push_back(sub.get<int>());
+                } else if (sub.is_string()) {
+                    try {
+                        int val = std::stoi(sub.get<std::string>());
+                        inputValues.push_back(val);
+                    } catch (...) {
+                        errs() << "Substitution for " << input.str() << " is not a valid integer. Use 0\n";
+                    }
+                    inputValues.push_back(0);
+                } else {
+                    errs() << "Substitution for " << input.str() << " is not a valid integer. Use 0\n";
+                    inputValues.push_back(0);
+                }
+            }
+        }
+
+        GraphBuilder::substitute(program, inputs, inputValues);
+    }
 
     // show the symbolic form or output as JSON
     if (!OutputJsonFilename.empty()) {

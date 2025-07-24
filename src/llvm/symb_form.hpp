@@ -282,6 +282,13 @@ public:
     static std::string getName(const llvm::BasicBlock*);
     static std::string getName(const llvm::Argument*);
     static std::string getName(const llvm::Loop*);
+
+    static void substitute(shared_ptr<Program> P, const vector<SymbolicExpr>& originals,
+        const vector<int>& withs);
+    static void substitute(shared_ptr<Graph> G, const vector<SymbolicExpr>& originals,
+        const vector<int>& withs);
+    static void substitute(shared_ptr<BasicGraph> BG, const vector<SymbolicExpr>& originals,
+        const vector<int>& withs);
 };
 
 class GraphViewer{
@@ -312,4 +319,5 @@ public:
     static nlohmann::json basicBlockToJson(shared_ptr<BasicBlock> BB);
     static nlohmann::json branchToJson(shared_ptr<Branch> BR);
     static nlohmann::json loopToJson(shared_ptr<Loop> L);
+
 };

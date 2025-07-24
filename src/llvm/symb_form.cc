@@ -86,18 +86,8 @@ shared_ptr<Program> GraphBuilder::createProgram(llvm::Function * F){
     auto args = F->arg_begin();
     auto argList = std::vector<SymbolicExpr>();
     for (; args != F->arg_end(); ++args) {
-        auto argName = getName(args);
-        int bitwidth = args->getType()->getIntegerBitWidth();
-        if (bitwidth == 0) {
-            llvm::errs() << "Warning: Argument " << argName << " has zero bitwidth, skipping\n";
-            auto symbol = SEM.symbUnknown(argName);
-            argList.push_back(symbol);
-            continue;
-        }
-        else{
-            auto symbol = SEM.bvNamed(argName, bitwidth);
-            argList.push_back(symbol);
-        }
+        auto symbol = SEM.bvValue(*args);
+        argList.push_back(symbol);
     }
 
     auto graph = createGraph(SEM.one(), &F->getEntryBlock());
@@ -510,6 +500,51 @@ bool GraphBuilder::isTailExiting(llvm::Loop* loop){
     return !isHeaderExiting(loop);
 }
 
+void GraphBuilder::substitute(shared_ptr<Program> P, const vector<SymbolicExpr>& originals, const vector<int>& withs){
+    substitute(P->G, originals, withs);
+}
+
+void GraphBuilder::substitute(shared_ptr<Graph> G, const vector<SymbolicExpr>& originals, const vector<int>& withs){
+    if (!G) return;
+
+    substitute(G->BG, originals, withs);
+    substitute(G->G, originals, withs);
+}
+
+void GraphBuilder::substitute(shared_ptr<BasicGraph> BG, const vector<SymbolicExpr>& originals, const vector<int>& withs){
+    if (!BG) return;
+
+    BG->count.substitude(originals, withs);
+    BG->count.simplify();
+
+    switch (BG->getGraphType()) {
+        case GraphType::BasicBlock:
+            // No further traversal needed for BasicBlock
+            break;
+        case GraphType::Branch: {
+            auto branch = std::static_pointer_cast<Branch>(BG);
+            branch->trueRatio.substitude(originals, withs);
+            branch->falseRatio.substitude(originals, withs);
+            branch->trueRatio.simplify();
+            branch->falseRatio.simplify();
+            substitute(branch->G1, originals, withs);
+            substitute(branch->G2, originals, withs);
+            break;
+        }
+        case GraphType::Loop: {
+            auto loop = std::static_pointer_cast<Loop>(BG);
+            loop->loopCount.substitude(originals, withs);
+            loop->loopCount.simplify();
+            substitute(loop->head, originals, withs);
+            substitute(loop->Gb, originals, withs);
+            break;
+        }
+        case GraphType::Unknown:
+            // Do nothing for unknown graph type
+            break;
+    }
+}
+
 using GA = GraphBuilder::Analysis;
 
 void GA::prepareBaseFactor(shared_ptr<Program>P){
@@ -619,6 +654,7 @@ void GA::update(shared_ptr<BasicGraph> BG, pair<SymbolicExpr, SymbolicExpr> subs
     auto updated = subs.second;
     
     BG->count.substitude(original, updated);
+    BG->count.simplify();
 
     switch (BG->getGraphType()) {
         case GraphType::BasicBlock:

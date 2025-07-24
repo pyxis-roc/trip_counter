@@ -1,3 +1,4 @@
+#include <optional>
 #include <z3++.h>
 #include <fstream>
 #include "symb_expr.hpp"
@@ -34,8 +35,8 @@ SymbolicExpr& SymbolicExpr::operator=(SymbolicExpr&& other) noexcept {
 }
 
 // Manipulation
-SymbolicExpr SymbolicExpr::simplify() const {
-    return SymbolicExpr(ctx_, expr_.simplify());
+void SymbolicExpr::simplify() {
+    expr_ = expr_.simplify();
 }
 
 SymbolicExpr SymbolicExpr::operator+(const SymbolicExpr& rhs) const {
@@ -148,16 +149,30 @@ unsigned SymbolicExpr::getBitwidth() const {
     return expr_.get_sort().bv_size();
 }
 
-bool SymbolicExpr::substitude(const SymbolicExpr& original, const SymbolicExpr& with) {
+void SymbolicExpr::substitude(const SymbolicExpr& original, const SymbolicExpr& with) {
     // Use Z3's substitute API to replace all occurrences of the variable named 'original' with 'with.expr_'
     z3::expr_vector from(ctx_);
     z3::expr_vector to(ctx_);
     from.push_back(original.expr_);
     to.push_back(with.expr_);
     z3::expr new_expr = expr_.substitute(from, to);
-    bool changed = !z3::eq(expr_, new_expr);
     expr_ = new_expr;
-    return changed;
+}
+
+void SymbolicExpr::substitude(const std::vector<SymbolicExpr>& inputs, const std::vector<int>& inputValues) {
+    if (inputs.size() != inputValues.size()) {
+        throw std::invalid_argument("Inputs and inputValues must have the same size");
+    }
+    
+    z3::expr_vector from(ctx_);
+    z3::expr_vector to(ctx_);
+    
+    for (size_t i = 0; i < inputs.size(); ++i) {
+        from.push_back(inputs[i].expr());
+        to.push_back(ctx_.bv_val(inputValues[i], inputs[i].getBitwidth()));
+    }
+    
+    expr_ = expr_.substitute(from, to);
 }
 
 std::string SymbolicExpr::str() const {
@@ -265,6 +280,7 @@ namespace {
     // Anonymous namespace for internal linkage
     std::unordered_map<const llvm::Instruction*, SymbolicExpr> instExprCache;
     std::unordered_map<const llvm::Value*, SymbolicExpr> valueExprCache;
+    std::unordered_map<const llvm::SCEV*, SymbolicExpr> scevExprCache;
 }
 
 SymbolicExpr SymbolicExprManager::bvInst(const llvm::Instruction& I) {
@@ -305,6 +321,10 @@ SymbolicExpr SymbolicExprManager::bvValue(const llvm::Value& V) {
 }
 
 SymbolicExpr SymbolicExprManager::bvSCEV(const llvm::SCEV& scev) {
+    auto it = scevExprCache.find(&scev);
+    if (it != scevExprCache.end()) {
+        return it->second;
+    }
     static int counter = 0;
     std::string name = "scev_" + std::to_string(++counter);
     unsigned bitwidth = scev.getType()->getPrimitiveSizeInBits();
@@ -312,5 +332,31 @@ SymbolicExpr SymbolicExprManager::bvSCEV(const llvm::SCEV& scev) {
         llvm::errs() << "Warning: SCEV " << name << " has zero bitwidth, using symbUnknown\n";
         return symbUnknown(name);
     }
-    return bvNamed(name, bitwidth);
+    SymbolicExpr expr = bvNamed(name, bitwidth);
+    scevExprCache.emplace(&scev, expr);
+    return expr;
+}
+
+std::optional<SymbolicExpr> SymbolicExprManager::findInst(const llvm::Instruction& I) {
+    auto it = instExprCache.find(&I);
+    if (it != instExprCache.end()) {
+        return it->second;
+    }
+    return std::nullopt; // If not found, return nullopt
+}
+
+std::optional<SymbolicExpr> SymbolicExprManager::findValue(const llvm::Value& V) {
+    auto it = valueExprCache.find(&V);
+    if (it != valueExprCache.end()) {
+        return it->second;
+    }
+    return std::nullopt; // If not found, return nullopt
+}
+
+std::optional<SymbolicExpr> SymbolicExprManager::findSCEV(const llvm::SCEV& scev) {
+    auto it = scevExprCache.find(&scev);
+    if (it != scevExprCache.end()) {
+        return it->second;
+    }
+    return std::nullopt; // If not found, return nullopt
 }
