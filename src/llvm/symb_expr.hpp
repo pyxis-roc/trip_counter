@@ -10,6 +10,7 @@
 #include "llvm/IR/Instruction.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include <optional>
+#include <vector>
 
 
 class SymbolicExpr {
@@ -111,6 +112,8 @@ public:
     std::optional<SymbolicExpr> findInst(const llvm::Instruction& I);
     std::optional<SymbolicExpr> findValue(const llvm::Value& V);
     std::optional<SymbolicExpr> findSCEV(const llvm::SCEV& scev);
+
+    std::vector<SymbolicExpr> getAllProgramExpr() const;
 
     void substitude(const std::vector<SymbolicExpr>& inputs, const std::vector<int>& inputValues);
 

@@ -245,8 +245,8 @@ public:
 
         // initializing base factors 
         void prepareBaseFactor(shared_ptr<Program> P);
-        void traverse(shared_ptr<Graph> current, vector<shared_ptr<BasicGraph>>& stack);
-        void traverse(shared_ptr<BasicGraph> current, vector<shared_ptr<BasicGraph>>& stack);
+        vector<shared_ptr<BasicGraph>> traverse(shared_ptr<Graph> current);
+        vector<shared_ptr<BasicGraph>> traverse(shared_ptr<BasicGraph> current);
 
         void addFactor(const llvm::BasicBlock*, const llvm::BasicBlock*, SymbolicExpr);
         optional<SymbolicExpr> getFactor(const llvm::BasicBlock*, const llvm::BasicBlock*);

@@ -16,6 +16,7 @@
 #include <tuple>
 #include <utility>
 #include <vector>
+#include <queue>
 
 shared_ptr<Symbol> Symbol::multiply(const shared_ptr<Symbol>& other) const {
     return make_shared<Symbol>("scMul(" + literal + ", " + other->literal + ")");
@@ -162,22 +163,46 @@ llvm::BasicBlock* GraphBuilder::nextGraphHead(GraphType type, llvm::BasicBlock* 
         case GraphType::Branch:{
             auto trueSide = startBB->getTerminator()->getSuccessor(0);
             auto falseSide = startBB->getTerminator()->getSuccessor(1);
-            
-            auto postDomTrue = PDT.getNode(trueSide);
-            auto postDomFalse = PDT.getNode(falseSide);
-            
-            if (!postDomTrue || !postDomFalse) {
-                llvm::errs() << "Error: GraphBuilder::nextGraphHead: Post dominator not found for one of the sides\n";
-                return nullptr;
+
+            // Find the first common descendant (reachable from both trueSide and falseSide), including themselves
+            std::set<const llvm::BasicBlock*> visitedTrue, visitedFalse;
+
+            std::function<void(const llvm::BasicBlock*, std::set<const llvm::BasicBlock*>&)> dfs =
+                [&](const llvm::BasicBlock* bb, std::set<const llvm::BasicBlock*>& visited) {
+                    if (!bb || visited.count(bb)) return;
+                    visited.insert(bb);
+                    auto term = bb->getTerminator();
+                    for (unsigned i = 0; i < term->getNumSuccessors(); ++i) {
+                        dfs(term->getSuccessor(i), visited);
+                    }
+                };
+
+            dfs(trueSide, visitedTrue);
+            dfs(falseSide, visitedFalse);
+
+            // Find intersection, including trueSide and falseSide themselves
+            // Use BFS to find the first common descendant in program order
+            std::queue<const llvm::BasicBlock*> q;
+            std::set<const llvm::BasicBlock*> visited;
+            if (trueSide) q.push(trueSide);
+
+            while (!q.empty()) {
+                const llvm::BasicBlock* bb = q.front();
+                q.pop();
+                if (!bb || visited.count(bb)) continue;
+                visited.insert(bb);
+
+                if (visitedTrue.count(bb) && visitedFalse.count(bb)) {
+                    return const_cast<llvm::BasicBlock*>(bb);
+                }
+                auto term = bb->getTerminator();
+                for (unsigned i = 0; i < term->getNumSuccessors(); ++i) {
+                    q.push(term->getSuccessor(i));
+                }
             }
-            
-            auto commonPostDom = PDT.findNearestCommonDominator(trueSide, falseSide);
-            if (!commonPostDom) {
-                llvm::errs() << "Error: GraphBuilder::nextGraphHead: No common post dominator found\n";
-                return nullptr;
-            }
-            
-            return commonPostDom;
+
+            llvm::errs() << "Error: GraphBuilder::nextGraphHead: No common descendant found\n";
+            return nullptr;
         }
         
         case GraphType::Loop:{
@@ -548,11 +573,16 @@ void GraphBuilder::substitute(shared_ptr<BasicGraph> BG, const vector<SymbolicEx
 using GA = GraphBuilder::Analysis;
 
 void GA::prepareBaseFactor(shared_ptr<Program>P){
-    vector<shared_ptr<BasicGraph>> stack{nullptr};
-    traverse(P->G, stack);
+    traverse(P->G);
 }
 
 optional<SymbolicExpr> GA::getFactor(const llvm::BasicBlock* from, const llvm::BasicBlock* to){
+    if (!from || !to) {
+        llvm::errs() << "Error: getFactor: from or to is null\n";
+        return std::nullopt;
+    }
+    // llvm::errs() << "From BasicBlock: " << GraphBuilder::getName(from) << "\n";
+    // llvm::errs() << "To BasicBlock: " << GraphBuilder::getName(to) << "\n";
     auto p = make_pair(from, to);
     return baseFactor.at(p);
 }
@@ -562,44 +592,68 @@ void GA::addFactor(const llvm::BasicBlock* from, const llvm::BasicBlock* to, Sym
     baseFactor.emplace(p, factor);
 }
 
-void GA::traverse(shared_ptr<Graph> G, vector<shared_ptr<BasicGraph>>& stack){
-    if (!G) return;
+// returns all the basic graphs at the end of current graph,
+// which are used to connect the previous end with the next start
+vector<shared_ptr<BasicGraph>> GA::traverse(shared_ptr<Graph> G){
+    if (!G) return{};
 
-    traverse(G->BG, stack);
-    traverse(G->G, stack);
+    auto last1 = traverse(G->BG);
+    auto last2 = traverse(G->G);
+
+    if(G->G){   // connect to next start
+        for(auto prev : last1){
+            addFactor(graph2bb[prev], graph2bb[G->G->BG], G->BG->count);
+        }
+        return last2; // return the last graphs of the next graph
+    }
+    else{
+        // if G->G is null, it means we are at the end of the graph
+        // return the last graphs of the current graph
+        return last1;
+    }
 }
 
-void GA::traverse(shared_ptr<BasicGraph> BG, vector<shared_ptr<BasicGraph>>& stack){
-    if(!BG) return;
-    
-    auto prev = stack.back();
-    
-    addFactor(graph2bb[prev], graph2bb[BG], BG->count);    //add connection from prev to current
+vector<shared_ptr<BasicGraph>> GA::traverse(shared_ptr<BasicGraph> BG){
+    vector<shared_ptr<BasicGraph>> last;
+    if(!BG) return last;
 
     switch (BG->getGraphType()) {
         case GraphType::BasicBlock:
-            stack.push_back(BG);
-            // No further traversal needed for BasicBlock
-            break;
+            last.push_back(BG);
+            return last;
         case GraphType::Branch: {
             auto branch = std::static_pointer_cast<Branch>(BG);
-            stack.push_back(BG);
-            traverse(branch->G1, stack);
-            stack.push_back(BG);
-            traverse(branch->G2, stack);
-            break;
+            //connect head to true and false branches
+            if (branch->G1) {
+                addFactor(graph2bb[BG], graph2bb[branch->G1->BG], branch->trueRatio * branch->count);
+            }
+            if (branch->G2){
+                addFactor(graph2bb[BG], graph2bb[branch->G2->BG], branch->falseRatio * branch->count);
+            }
+
+            auto lastBR1 = traverse(branch->G1);
+            auto lastBR2 = traverse(branch->G2);
+            last.insert(last.end(), lastBR1.begin(), lastBR1.end());
+            last.insert(last.end(), lastBR2.begin(), lastBR2.end());
+            return last;
         }
         case GraphType::Loop: {
             auto loop = std::static_pointer_cast<Loop>(BG);
-            stack.push_back(BG);
-            traverse(loop->head, stack);
-            traverse(loop->Gb, stack);
-            break;
+            auto last_head = traverse(loop->head);
+            auto last_Gb = traverse(loop->Gb);
+
+            if (loop->Gb){
+                // body is not empty
+                addFactor(graph2bb[loop->head], graph2bb[loop->Gb->BG], loop->count);
+                return last_Gb;
+            }
+            return last_head; // if Gb is null, return the last graphs of the head
         }
         case GraphType::Unknown:
             // Do nothing for unknown graph type
             break;
     }
+    return last;
 
 }
 
@@ -845,23 +899,23 @@ SymbolicExpr GA::inst2Expr(const llvm::Instruction& I) {
         case llvm::Instruction::PHI:{
             auto phi = llvm::dyn_cast<llvm::PHINode>(&I);
             auto sum = SEM.intVal(0);
+            auto total_factor = SEM.intVal(0);
             for (unsigned i = 0; i < phi->getNumIncomingValues(); ++i) {
                 auto incomingBB = phi->getIncomingBlock(i);
                 auto currentBB = const_cast<llvm::BasicBlock*>(phi->getParent());
                 auto incomingVal = phi->getIncomingValue(i);
                 if (auto baseFactor = getFactor(incomingBB, currentBB)) {
                     sum = sum + baseFactor.value() * value2Expr(*incomingVal);
+                    total_factor = total_factor + baseFactor.value();
                 } else {
                     llvm::errs() << "printExpandedPHI: no TR expression for phi: ";
                     phi->printAsOperand(llvm::errs(), false);
                     llvm::errs() << " from basic block: " << GraphBuilder::getName(incomingBB) << "\n";
                     phi->printAsOperand(llvm::errs(), false);
-
-                    auto unknownPhi = SEM.bvInst(I);
-                    sum = sum + unknownPhi;
+                    llvm::errs() << " ignore this incoming value" << "\n";
                 }
             }
-            return sum;
+            return sum/ total_factor; // Normalize by the total factor
         }
         case llvm::Instruction::And:{
             auto op0 = I.getOperand(0);

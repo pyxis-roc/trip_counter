@@ -360,3 +360,17 @@ std::optional<SymbolicExpr> SymbolicExprManager::findSCEV(const llvm::SCEV& scev
     }
     return std::nullopt; // If not found, return nullopt
 }
+
+std::vector<SymbolicExpr> SymbolicExprManager::getAllProgramExpr() const {
+    std::vector<SymbolicExpr> allExprs;
+    for (const auto& pair : instExprCache) {
+        allExprs.push_back(pair.second);
+    }
+    for (const auto& pair : valueExprCache) {
+        allExprs.push_back(pair.second);
+    }
+    for (const auto& pair : scevExprCache) {
+        allExprs.push_back(pair.second);
+    }
+    return allExprs;
+}

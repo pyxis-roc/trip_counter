@@ -126,10 +126,10 @@ int main(int argc, char **argv) {
 
         vector<SymbolicExpr>inputs;
         vector<int> inputValues;
-        for (auto &input : program->inputs) {
-            if (subsJson.contains(input.str())) {
-                inputs.push_back(input);
-                auto sub = subsJson[input.str()];
+        for (auto &var : GB.SEM.getAllProgramExpr()) {
+            if (subsJson.contains(var.str())) {
+                inputs.push_back(var);
+                auto sub = subsJson[var.str()];
                 if (sub.is_number_integer()) {
                     inputValues.push_back(sub.get<int>());
                 } else if (sub.is_string()) {
@@ -137,11 +137,11 @@ int main(int argc, char **argv) {
                         int val = std::stoi(sub.get<std::string>());
                         inputValues.push_back(val);
                     } catch (...) {
-                        errs() << "Substitution for " << input.str() << " is not a valid integer. Use 0\n";
+                        errs() << "Substitution for " << var.str() << " is not a valid integer. Use 0\n";
                     }
                     inputValues.push_back(0);
                 } else {
-                    errs() << "Substitution for " << input.str() << " is not a valid integer. Use 0\n";
+                    errs() << "Substitution for " << var.str() << " is not a valid integer. Use 0\n";
                     inputValues.push_back(0);
                 }
             }
