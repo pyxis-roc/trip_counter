@@ -39,7 +39,7 @@ public:
 
     static shared_ptr<Symbol> one();
 
-    bool substitude(string original, string with);
+    bool substitute(string original, string with);
 
     void show(std::ostream& os = std::cout) const;
 };
@@ -178,7 +178,12 @@ public:
     std::map<shared_ptr<BasicGraph>, const llvm::BasicBlock*> graph2bb;
     std::map<const llvm::BasicBlock*, vector<shared_ptr<BasicGraph>>> bb2graph;
     void record(shared_ptr<BasicGraph>, const llvm::BasicBlock*);
+    
     std::shared_ptr<BasicGraph> bbTwin(const llvm::BasicBlock* bb, GraphType type);
+    
+    // bbTwin check if one basic graph is created, if so, the later updates will be done through
+    // addFlow, which will add the flow to the existing graph
+    void addFlow(shared_ptr<BasicGraph> BG, shared_ptr<BasicGraph> toAdd);
 
     GraphBuilder(llvm::LoopInfo& LI, llvm::PostDominatorTree& PDT, llvm::ScalarEvolution& SE) 
         : LI(LI), PDT(PDT), SE(SE) {}
@@ -289,6 +294,15 @@ public:
         const vector<int>& withs);
     static void substitute(shared_ptr<BasicGraph> BG, const vector<SymbolicExpr>& originals,
         const vector<int>& withs);
+    
+    static void substitute(shared_ptr<Program> P, const vector<SymbolicExpr>& originals,
+        const vector<SymbolicExpr>& withs);
+    static void substitute(shared_ptr<Graph> G, const vector<SymbolicExpr>& originals,
+        const vector<SymbolicExpr>& withs);
+    static void substitute(shared_ptr<BasicGraph> BG, const vector<SymbolicExpr>& originals,
+        const vector<SymbolicExpr>& withs);
+
+        
 };
 
 class GraphViewer{

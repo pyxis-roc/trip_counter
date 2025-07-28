@@ -35,7 +35,7 @@ shared_ptr<Symbol> Symbol::one() {
     return make_shared<Symbol>("1");
 }
 
-bool Symbol::substitude(string original, string with){
+bool Symbol::substitute(string original, string with){
     size_t pos = 0;
     bool changed = false;
     while ((pos = literal.find(original, pos)) != std::string::npos) {
@@ -80,6 +80,12 @@ std::shared_ptr<BasicGraph> GraphBuilder::bbTwin(const llvm::BasicBlock* bb, Gra
         }
     }
     return nullptr;
+}
+
+void GraphBuilder::addFlow(shared_ptr<BasicGraph> BG, shared_ptr<BasicGraph> toAdd) {
+    if (!BG || !toAdd) return;
+
+    substitute(BG, {BG->count}, {toAdd->count + BG->count});
 }
 
 shared_ptr<Program> GraphBuilder::createProgram(llvm::Function * F){
@@ -161,48 +167,25 @@ llvm::BasicBlock* GraphBuilder::nextGraphHead(GraphType type, llvm::BasicBlock* 
 
 
         case GraphType::Branch:{
+            
             auto trueSide = startBB->getTerminator()->getSuccessor(0);
             auto falseSide = startBB->getTerminator()->getSuccessor(1);
-
-            // Find the first common descendant (reachable from both trueSide and falseSide), including themselves
-            std::set<const llvm::BasicBlock*> visitedTrue, visitedFalse;
-
-            std::function<void(const llvm::BasicBlock*, std::set<const llvm::BasicBlock*>&)> dfs =
-                [&](const llvm::BasicBlock* bb, std::set<const llvm::BasicBlock*>& visited) {
-                    if (!bb || visited.count(bb)) return;
-                    visited.insert(bb);
-                    auto term = bb->getTerminator();
-                    for (unsigned i = 0; i < term->getNumSuccessors(); ++i) {
-                        dfs(term->getSuccessor(i), visited);
-                    }
-                };
-
-            dfs(trueSide, visitedTrue);
-            dfs(falseSide, visitedFalse);
-
-            // Find intersection, including trueSide and falseSide themselves
-            // Use BFS to find the first common descendant in program order
-            std::queue<const llvm::BasicBlock*> q;
-            std::set<const llvm::BasicBlock*> visited;
-            if (trueSide) q.push(trueSide);
-
-            while (!q.empty()) {
-                const llvm::BasicBlock* bb = q.front();
-                q.pop();
-                if (!bb || visited.count(bb)) continue;
-                visited.insert(bb);
-
-                if (visitedTrue.count(bb) && visitedFalse.count(bb)) {
-                    return const_cast<llvm::BasicBlock*>(bb);
-                }
-                auto term = bb->getTerminator();
-                for (unsigned i = 0; i < term->getNumSuccessors(); ++i) {
-                    q.push(term->getSuccessor(i));
-                }
+            
+            auto postDomTrue = PDT.getNode(trueSide);
+            auto postDomFalse = PDT.getNode(falseSide);
+            
+            if (!postDomTrue || !postDomFalse) {
+                llvm::errs() << "Error: GraphBuilder::nextGraphHead: Post dominator not found for one of the sides\n";
+                return nullptr;
             }
-
-            llvm::errs() << "Error: GraphBuilder::nextGraphHead: No common descendant found\n";
-            return nullptr;
+            
+            auto commonPostDom = PDT.findNearestCommonDominator(trueSide, falseSide);
+            if (!commonPostDom) {
+                llvm::errs() << "Error: GraphBuilder::nextGraphHead: No common post dominator found\n";
+                return nullptr;
+            }
+            
+            return commonPostDom;
         }
         
         case GraphType::Loop:{
@@ -323,6 +306,8 @@ shared_ptr<BasicBlock> GraphBuilder:: createBasicBlock(std::shared_ptr<BasicGrap
   
     if (!startBB || startBB == endBB) return nullptr;
     if (auto twin = bbTwin(startBB, GraphType::BasicBlock)) {
+        // If a twin already exists, add current flow to it
+        addFlow(twin, BG);
         return std::static_pointer_cast<BasicBlock>(twin);
     }
 
@@ -336,6 +321,8 @@ shared_ptr<Branch> GraphBuilder::createBranch(std::shared_ptr<BasicGraph> BG,
 
     if (!startBB || startBB == endBB) return nullptr;
     if (auto twin = bbTwin(startBB, GraphType::Branch)) {
+        // If a twin already exists, add current flow to it
+        addFlow(twin, BG);
         return std::static_pointer_cast<Branch>(twin);
     }
 
@@ -478,6 +465,7 @@ shared_ptr<Loop> GraphBuilder::createLoop(std::shared_ptr<BasicGraph> BG,
 
     if (!startBB || startBB == endBB) return nullptr;
     if (auto twin = bbTwin(startBB, GraphType::Loop)) {
+        addFlow(twin, BG);
         return std::static_pointer_cast<Loop>(twin);
     }
 
@@ -539,7 +527,7 @@ void GraphBuilder::substitute(shared_ptr<Graph> G, const vector<SymbolicExpr>& o
 void GraphBuilder::substitute(shared_ptr<BasicGraph> BG, const vector<SymbolicExpr>& originals, const vector<int>& withs){
     if (!BG) return;
 
-    BG->count.substitude(originals, withs);
+    BG->count.substitute(originals, withs);
     BG->count.simplify();
 
     switch (BG->getGraphType()) {
@@ -548,8 +536,8 @@ void GraphBuilder::substitute(shared_ptr<BasicGraph> BG, const vector<SymbolicEx
             break;
         case GraphType::Branch: {
             auto branch = std::static_pointer_cast<Branch>(BG);
-            branch->trueRatio.substitude(originals, withs);
-            branch->falseRatio.substitude(originals, withs);
+            branch->trueRatio.substitute(originals, withs);
+            branch->falseRatio.substitute(originals, withs);
             branch->trueRatio.simplify();
             branch->falseRatio.simplify();
             substitute(branch->G1, originals, withs);
@@ -558,7 +546,52 @@ void GraphBuilder::substitute(shared_ptr<BasicGraph> BG, const vector<SymbolicEx
         }
         case GraphType::Loop: {
             auto loop = std::static_pointer_cast<Loop>(BG);
-            loop->loopCount.substitude(originals, withs);
+            loop->loopCount.substitute(originals, withs);
+            loop->loopCount.simplify();
+            substitute(loop->head, originals, withs);
+            substitute(loop->Gb, originals, withs);
+            break;
+        }
+        case GraphType::Unknown:
+            // Do nothing for unknown graph type
+            break;
+    }
+}
+
+void GraphBuilder::substitute(shared_ptr<Program> P, const vector<SymbolicExpr>& originals, const vector<SymbolicExpr>& withs){
+    substitute(P->G, originals, withs);
+}
+
+void GraphBuilder::substitute(shared_ptr<Graph> G, const vector<SymbolicExpr>& originals, const vector<SymbolicExpr>& withs){
+    if (!G) return;
+
+    substitute(G->BG, originals, withs);
+    substitute(G->G, originals, withs);
+}
+
+void GraphBuilder::substitute(shared_ptr<BasicGraph> BG, const vector<SymbolicExpr>& originals, const vector<SymbolicExpr>& withs){
+    if (!BG) return;
+
+    BG->count.substitute(originals, withs);
+    BG->count.simplify();
+
+    switch (BG->getGraphType()) {
+        case GraphType::BasicBlock:
+            // No further traversal needed for BasicBlock
+            break;
+        case GraphType::Branch: {
+            auto branch = std::static_pointer_cast<Branch>(BG);
+            branch->trueRatio.substitute(originals, withs);
+            branch->falseRatio.substitute(originals, withs);
+            branch->trueRatio.simplify();
+            branch->falseRatio.simplify();
+            substitute(branch->G1, originals, withs);
+            substitute(branch->G2, originals, withs);
+            break;
+        }
+        case GraphType::Loop: {
+            auto loop = std::static_pointer_cast<Loop>(BG);
+            loop->loopCount.substitute(originals, withs);
             loop->loopCount.simplify();
             substitute(loop->head, originals, withs);
             substitute(loop->Gb, originals, withs);
@@ -673,8 +706,6 @@ void GA::refine(shared_ptr<BasicGraph> BG){
             refine(branch->G1);
             refine(branch->G2);
             if(auto TRexpanded = getTrueRatio(graph2bb[branch])){
-                // llvm::errs() << "original: " << branch->trueRatio.expr().to_string() <<'\n';
-                // llvm::errs() << "expanded: " << TRexpanded.value().expr().to_string() << "\n";
                 update(branch, make_pair(branch->trueRatio, TRexpanded.value()));
             }
             break;
@@ -706,8 +737,8 @@ void GA::update(shared_ptr<BasicGraph> BG, pair<SymbolicExpr, SymbolicExpr> subs
 
     auto original = subs.first;
     auto updated = subs.second;
-    
-    BG->count.substitude(original, updated);
+
+    BG->count.substitute(original, updated);
     BG->count.simplify();
 
     switch (BG->getGraphType()) {
@@ -715,15 +746,15 @@ void GA::update(shared_ptr<BasicGraph> BG, pair<SymbolicExpr, SymbolicExpr> subs
             break;
         case GraphType::Branch: {
             auto branch = std::static_pointer_cast<Branch>(BG);
-            branch->trueRatio.substitude(original, updated);
-            branch->falseRatio.substitude(original, updated);
+            branch->trueRatio.substitute(original, updated);
+            branch->falseRatio.substitute(original, updated);
             update(branch->G1, subs);
             update(branch->G2, subs);
             break;
         }
         case GraphType::Loop: {
             auto loop = std::static_pointer_cast<Loop>(BG);
-            loop->loopCount.substitude(original, updated);
+            loop->loopCount.substitute(original, updated);
             update(loop->head, subs);
             update(loop->Gb, subs);
             break;
@@ -1586,6 +1617,5 @@ void GraphViewer::getAllBasicGraphs(shared_ptr<BasicGraph> BG, vector<shared_ptr
         }
         default:
             llvm::errs() << "Error: GraphViewer::getAllBasicGraphs: Unknown graph type for BasicGraph: " << BG->id << "\n";
-    
     }
 }

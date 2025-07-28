@@ -58,8 +58,9 @@ public:
     std::string str() const;
 
     // substitution to replace symbolic variables with symbolic expressions
-    void substitude(const SymbolicExpr& original, const SymbolicExpr& with);
-    void substitude(const std::vector<SymbolicExpr>& inputs, const std::vector<int>& inputValues);
+    void substitute(const SymbolicExpr& original, const SymbolicExpr& with);
+    void substitute(const std::vector<SymbolicExpr>& inputs, const std::vector<int>& inputValues);
+    void substitute(const std::vector<SymbolicExpr>& original, const std::vector<SymbolicExpr>& with);
 
     void simplify();
 

@@ -1,6 +1,5 @@
 #include <optional>
 #include <z3++.h>
-#include <fstream>
 #include "symb_expr.hpp"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/IR/Instruction.h"
@@ -149,7 +148,7 @@ unsigned SymbolicExpr::getBitwidth() const {
     return expr_.get_sort().bv_size();
 }
 
-void SymbolicExpr::substitude(const SymbolicExpr& original, const SymbolicExpr& with) {
+void SymbolicExpr::substitute(const SymbolicExpr& original, const SymbolicExpr& with) {
     // Use Z3's substitute API to replace all occurrences of the variable named 'original' with 'with.expr_'
     z3::expr_vector from(ctx_);
     z3::expr_vector to(ctx_);
@@ -159,7 +158,20 @@ void SymbolicExpr::substitude(const SymbolicExpr& original, const SymbolicExpr& 
     expr_ = new_expr;
 }
 
-void SymbolicExpr::substitude(const std::vector<SymbolicExpr>& inputs, const std::vector<int>& inputValues) {
+void SymbolicExpr::substitute(const std::vector<SymbolicExpr>& original, const std::vector<SymbolicExpr>& with) {
+    // Use Z3's substitute API to replace all occurrences of the variable named 'original' with 'with.expr_'
+    z3::expr_vector from(ctx_);
+    z3::expr_vector to(ctx_);
+    for (const auto& orig : original) {
+        from.push_back(orig.expr());
+    }
+    for (const auto& w : with) {
+        to.push_back(w.expr());
+    }
+    expr_ = expr_.substitute(from, to);
+}
+
+void SymbolicExpr::substitute(const std::vector<SymbolicExpr>& inputs, const std::vector<int>& inputValues) {
     if (inputs.size() != inputValues.size()) {
         throw std::invalid_argument("Inputs and inputValues must have the same size");
     }
