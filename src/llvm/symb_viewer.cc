@@ -144,9 +144,7 @@ int main(int argc, char **argv) {
         vector<SymbolicExpr>inputs;
         vector<int> inputValues;
         for (auto &var : GB.SEM.getAllProgramExpr()) {
-            errs() << "Checking substitution for " << var.str() << "\n";
             if (subsJson.contains(var.str())) {
-                errs() << "Applying substitution for " << var.str() << "\n";
                 inputs.push_back(var);
                 auto sub = subsJson[var.str()];
                 if (sub.is_number_integer()) {
