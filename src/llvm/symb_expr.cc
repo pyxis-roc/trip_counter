@@ -1,10 +1,22 @@
 #include <optional>
+#include <string>
 #include <z3++.h>
 #include "symb_expr.hpp"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/Support/raw_ostream.h"
 
+
+// Use maps to cache symbolic expressions for instructions and values
+#include <unordered_map>
+
+namespace {
+    // Anonymous namespace for internal linkage
+    std::unordered_map<const llvm::Instruction*, SymbolicExpr> instExprCache;
+    std::unordered_map<const llvm::Value*, SymbolicExpr> valueExprCache;
+    std::unordered_map<const llvm::SCEV*, SymbolicExpr> scevExprCache;
+    std::unordered_map<std::string, SymbolicExpr> rawExprCache;
+}
 
 // Constructors
 SymbolicExpr::SymbolicExpr(z3::context& ctx, const z3::expr& expr)
@@ -237,11 +249,23 @@ SymbolicExpr SymbolicExprManager::named(const std::string& name) {
 }
 
 SymbolicExpr SymbolicExprManager::named32(const std::string& name) {
-    return SymbolicExpr(ctx_, ctx_.bv_const(name.c_str(), 32));
+    auto it = rawExprCache.find(name);
+    if (it != rawExprCache.end()) {
+        return it->second;
+    }
+    auto expr = SymbolicExpr(ctx_, ctx_.bv_const(name.c_str(), 32));
+    rawExprCache.emplace(name, expr);
+    return expr;
 }
 
 SymbolicExpr SymbolicExprManager::named64(const std::string& name) {
-    return SymbolicExpr(ctx_, ctx_.bv_const(name.c_str(), 64));
+    auto it = rawExprCache.find(name);
+    if (it != rawExprCache.end()) {
+        return it->second;
+    }
+    auto expr = SymbolicExpr(ctx_, ctx_.bv_const(name.c_str(), 64));
+    rawExprCache.emplace(name, expr);
+    return expr;
 }
 
 SymbolicExpr SymbolicExprManager::intVal(int val) {
@@ -270,7 +294,13 @@ SymbolicExpr SymbolicExprManager::bvVal(uint64_t val, unsigned bitwidth) {
 }
 
 SymbolicExpr SymbolicExprManager::bvNamed(const std::string& name, unsigned bitwidth) {
-    return SymbolicExpr(ctx_, ctx_.bv_const(name.c_str(), bitwidth));
+    auto it = rawExprCache.find(name);
+    if (it != rawExprCache.end()) {
+        return it->second;
+    }
+    auto expr = SymbolicExpr(ctx_, ctx_.bv_const(name.c_str(), bitwidth));
+    rawExprCache.emplace(name, expr);
+    return expr;
 }
 
 SymbolicExpr SymbolicExprManager::symbTrueRatio(const std::string& name) {
@@ -283,16 +313,6 @@ SymbolicExpr SymbolicExprManager::symbLoopCount(const std::string& name) {
 
 SymbolicExpr SymbolicExprManager::symbUnknown(const std::string& name) {
     return named(name);
-}
-
-// Use maps to cache symbolic expressions for instructions and values
-#include <unordered_map>
-
-namespace {
-    // Anonymous namespace for internal linkage
-    std::unordered_map<const llvm::Instruction*, SymbolicExpr> instExprCache;
-    std::unordered_map<const llvm::Value*, SymbolicExpr> valueExprCache;
-    std::unordered_map<const llvm::SCEV*, SymbolicExpr> scevExprCache;
 }
 
 SymbolicExpr SymbolicExprManager::bvInst(const llvm::Instruction& I) {
@@ -382,6 +402,9 @@ std::vector<SymbolicExpr> SymbolicExprManager::getAllProgramExpr() const {
         allExprs.push_back(pair.second);
     }
     for (const auto& pair : scevExprCache) {
+        allExprs.push_back(pair.second);
+    }
+    for (const auto& pair : rawExprCache) {
         allExprs.push_back(pair.second);
     }
     return allExprs;

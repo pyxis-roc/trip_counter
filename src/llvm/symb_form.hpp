@@ -301,7 +301,6 @@ public:
         const vector<SymbolicExpr>& withs);
     static void substitute(shared_ptr<BasicGraph> BG, const vector<SymbolicExpr>& originals,
         const vector<SymbolicExpr>& withs);
-
         
 };
 

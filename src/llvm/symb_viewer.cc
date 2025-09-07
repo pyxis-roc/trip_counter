@@ -20,6 +20,8 @@
 #include <llvm/IR/LegacyPassManager.h>
 #include <memory>
 #include <fstream>
+#include <chrono>
+
 #include "llvm/Transforms/Utils/Mem2Reg.h"
 
 using namespace llvm;
@@ -39,6 +41,17 @@ static cl::opt<std::string> SubstitutionFile(
     cl::value_desc("filename"),
     cl::init("")
 );
+static cl::opt<bool> Quiet(
+    "quiet",
+    cl::desc("Suppress all standard output"),
+    cl::init(false)
+);
+static cl::opt<bool> Time(
+    "time",
+    cl::desc("Print execution time"),
+    cl::init(false)
+);
+
 llvm::cl::opt<bool> Help("h", llvm::cl::desc("Print help message"));
 
 void printHelpMessage() {
@@ -58,6 +71,8 @@ int main(int argc, char **argv) {
         printHelpMessage();
         return 0;
     }
+
+    auto t_start = std::chrono::high_resolution_clock::now();
 
     InitLLVM X(argc, argv);
     cl::ParseCommandLineOptions(argc, argv, "LLVM IR Loop/PDom/SE Analysis\n");
@@ -114,8 +129,10 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    std::chrono::duration<double> t_subs{0};
     // Apply substitutions if provided
     if (!SubstitutionFile.empty()) {
+        auto t_subs_start = std::chrono::high_resolution_clock::now();
         std::ifstream subsFile(SubstitutionFile);
         if (!subsFile.is_open()) {
             errs() << "Failed to open substitution file: " << SubstitutionFile << "\n";
@@ -123,11 +140,13 @@ int main(int argc, char **argv) {
         }
         nlohmann::json subsJson;
         subsFile >> subsJson;
-
+        
         vector<SymbolicExpr>inputs;
         vector<int> inputValues;
         for (auto &var : GB.SEM.getAllProgramExpr()) {
+            errs() << "Checking substitution for " << var.str() << "\n";
             if (subsJson.contains(var.str())) {
+                errs() << "Applying substitution for " << var.str() << "\n";
                 inputs.push_back(var);
                 auto sub = subsJson[var.str()];
                 if (sub.is_number_integer()) {
@@ -138,24 +157,38 @@ int main(int argc, char **argv) {
                         inputValues.push_back(val);
                     } catch (...) {
                         errs() << "Substitution for " << var.str() << " is not a valid integer. Use 0\n";
+                        inputValues.push_back(0);
                     }
-                    inputValues.push_back(0);
                 } else {
                     errs() << "Substitution for " << var.str() << " is not a valid integer. Use 0\n";
                     inputValues.push_back(0);
                 }
             }
         }
-
+        
         GraphBuilder::substitute(program, inputs, inputValues);
+        auto t_subs_end = std::chrono::high_resolution_clock::now();
+        t_subs = t_subs_end - t_subs_start;
     }
 
     // show the symbolic form or output as JSON
-    if (!OutputJsonFilename.empty()) {
-        std::ofstream jsonOut(OutputJsonFilename);
-        GraphViewer::showAllBasicGraphsAsJson(program, jsonOut);
-    } else {
-        GraphViewer::showProgram(program);
+    if(!Quiet){
+        if (!OutputJsonFilename.empty()) {
+            std::ofstream jsonOut(OutputJsonFilename);
+            GraphViewer::showAllBasicGraphsAsJson(program, jsonOut);
+        } else {
+            GraphViewer::showProgram(program);
+        }
+    }
+
+    auto t_end = std::chrono::high_resolution_clock::now();
+
+    if (Time) {
+        llvm::outs() << "Total time: " 
+                     << std::chrono::duration<double>(t_end - t_start).count() << "s\n";
+        if (!SubstitutionFile.empty()) {
+            llvm::outs() << "Substitution time: " << t_subs.count() << "s\n";
+        }
     }
 
     return 0;

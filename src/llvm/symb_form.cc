@@ -16,7 +16,6 @@
 #include <tuple>
 #include <utility>
 #include <vector>
-#include <queue>
 
 shared_ptr<Symbol> Symbol::multiply(const shared_ptr<Symbol>& other) const {
     return make_shared<Symbol>("scMul(" + literal + ", " + other->literal + ")");
