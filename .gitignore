@@ -9,4 +9,5 @@ __pycache__/
 *.so
 instr.prof
 *.pdf
-src/llvm/IR_plugin/print.ll
+*.profdata
+*.profraw
