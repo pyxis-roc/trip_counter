@@ -133,6 +133,7 @@ int main(int argc, char **argv) {
     // Apply substitutions if provided
     if (!SubstitutionFile.empty()) {
         auto t_subs_start = std::chrono::high_resolution_clock::now();
+
         std::ifstream subsFile(SubstitutionFile);
         if (!subsFile.is_open()) {
             errs() << "Failed to open substitution file: " << SubstitutionFile << "\n";

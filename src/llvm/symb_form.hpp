@@ -268,6 +268,7 @@ public:
 
         // data flow tracking
         optional<SymbolicExpr> getLoopCount(llvm::Loop* loop);
+        optional<SymbolicExpr> getTrueRatio(const llvm::BasicBlock*);
 
         SymbolicExpr SCEV2Expr(const llvm::SCEV& E);
         SymbolicExpr inst2Expr(const llvm::Instruction& I);
@@ -279,7 +280,11 @@ public:
         void printExpandedPHI(const llvm::Value*, llvm::raw_ostream &);
         bool isSolvable(const llvm::Value*);
 
-        optional<SymbolicExpr> getTrueRatio(const llvm::BasicBlock*);
+        // check if a value is escaping from a loop to current basic block 
+        // (whose value can be computed using SCEV exit value analysis)
+        bool isSolvableExitValue(const llvm::Value*, const llvm::BasicBlock* from, const llvm::BasicBlock* to);
+        llvm::SCEV* getExitValueSCEV(const llvm::Value*, const llvm::BasicBlock* from, const llvm::BasicBlock* to);
+
     };
 
     // some utility functions

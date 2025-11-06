@@ -7,19 +7,24 @@ include(FetchContent)
 
 # find llvm
 find_package(LLVM REQUIRED CONFIG)
+
+message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
+message(STATUS "LLVM Include Directory: ${LLVM_INCLUDE_DIRS}")
+message(STATUS "LLVM Libraries: ${LLVM_LIBRARY_DIRS}")
+message(STATUS "LLVM Targets: ${LLVM_TARGETS_TO_BUILD}")
+
 execute_process(
     COMMAND llvm-config --includedir 
     OUTPUT_VARIABLE 
     LLVM_INCLUDE_DIRS
 )
 include_directories(${LLVM_INCLUDE_DIRS})
-    
+
 FetchContent_Declare(z3
         GIT_REPOSITORY https://github.com/Z3Prover/z3
         GIT_TAG        z3-4.12.1
 )
-
-# 👇 Now safely make Z3 available
+set(Z3_BUILD_LIBZ3_SHARED OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(z3)
 
 include_directories(
@@ -27,12 +32,8 @@ include_directories(
     ${z3_SOURCE_DIR}/src/api/c++
 )
 
-set(Z3_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}" CACHE PATH "" FORCE)
-set(Z3_INSTALL TRUE CACHE BOOL "" FORCE)  # ensure it installs
-
 FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz)
 FetchContent_MakeAvailable(json)
-
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
@@ -82,10 +83,10 @@ add_executable(
     symb_expr.cc
 )
 
-
 target_compile_definitions(symCount PRIVATE IR_PLUGIN_PATH="${PROJECT_SOURCE_DIR}/IR_plugin")
 target_include_directories(symCount PUBLIC "${PROJECT_SOURCE_DIR}")
 target_link_libraries(symCount LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis nlohmann_json::nlohmann_json)
 target_link_libraries(instr-count LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis nlohmann_json::nlohmann_json)
 target_link_libraries(symb-viewer LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis nlohmann_json::nlohmann_json libz3)
+target_compile_options(symb-viewer PRIVATE -O3)
 install(TARGETS symCount instr-count symb-viewer DESTINATION bin)

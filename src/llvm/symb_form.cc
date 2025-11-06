@@ -613,8 +613,8 @@ optional<SymbolicExpr> GA::getFactor(const llvm::BasicBlock* from, const llvm::B
         llvm::errs() << "Error: getFactor: from or to is null\n";
         return std::nullopt;
     }
-    // llvm::errs() << "From BasicBlock: " << GraphBuilder::getName(from) << "\n";
-    // llvm::errs() << "To BasicBlock: " << GraphBuilder::getName(to) << "\n";
+    // llvm::errs() << "DEBUG: From BasicBlock: " << GraphBuilder::getName(from) << "\n";
+    // llvm::errs() << "DEBUG: To BasicBlock: " << GraphBuilder::getName(to) << "\n";
     auto p = make_pair(from, to);
     return baseFactor.at(p);
 }
@@ -658,15 +658,19 @@ vector<shared_ptr<BasicGraph>> GA::traverse(shared_ptr<BasicGraph> BG){
             //connect head to true and false branches
             if (branch->G1) {
                 addFactor(graph2bb[BG], graph2bb[branch->G1->BG], branch->trueRatio * branch->count);
+                auto lastBR1 = traverse(branch->G1);
+                last.insert(last.end(), lastBR1.begin(), lastBR1.end());
             }
             if (branch->G2){
                 addFactor(graph2bb[BG], graph2bb[branch->G2->BG], branch->falseRatio * branch->count);
+                auto lastBR2 = traverse(branch->G2);
+                last.insert(last.end(), lastBR2.begin(), lastBR2.end());
+            }
+            if (!branch->G1 || !branch->G2){
+                // both branches are null, return the branch itself as last
+                last.push_back(BG);
             }
 
-            auto lastBR1 = traverse(branch->G1);
-            auto lastBR2 = traverse(branch->G2);
-            last.insert(last.end(), lastBR1.begin(), lastBR1.end());
-            last.insert(last.end(), lastBR2.begin(), lastBR2.end());
             return last;
         }
         case GraphType::Loop: {
@@ -781,7 +785,6 @@ optional<SymbolicExpr> GA::getTrueRatio(const llvm::BasicBlock* bb){
 
     auto cond = inst2Expr(*term); //1-bit vector return
     return cond.zeroExtend(63); // Convert 1-bit condition to 64-bit vector
-    return cond;
 }
 
 optional<SymbolicExpr> GA::getLoopCount(llvm::Loop* loop){
@@ -919,13 +922,15 @@ SymbolicExpr GA::SCEV2Expr(const llvm::SCEV& scev) {
     return SEM.bvSCEV(scev);
 }
 
+// expands an instruction into a symbolic expression
 SymbolicExpr GA::inst2Expr(const llvm::Instruction& I) {
-    // I.print(llvm::errs());
-    // llvm::errs() << "\n";
 
     auto & ctx_ = SEM.context();
 
     switch (I.getOpcode()) {
+
+        // PHI node: weighted average based on incoming edge factors
+        // the linear property is due to the linearity of value's effect on LC or TR
         case llvm::Instruction::PHI:{
             auto phi = llvm::dyn_cast<llvm::PHINode>(&I);
             auto sum = SEM.intVal(0);
@@ -934,15 +939,21 @@ SymbolicExpr GA::inst2Expr(const llvm::Instruction& I) {
                 auto incomingBB = phi->getIncomingBlock(i);
                 auto currentBB = const_cast<llvm::BasicBlock*>(phi->getParent());
                 auto incomingVal = phi->getIncomingValue(i);
+
                 if (auto baseFactor = getFactor(incomingBB, currentBB)) {
-                    sum = sum + baseFactor.value() * value2Expr(*incomingVal);
+                    if(isSolvableExitValue(incomingVal, incomingBB, currentBB)){
+                        auto exit_value = getExitValueSCEV(incomingVal, incomingBB, currentBB);
+                        sum = sum + baseFactor.value() * SCEV2Expr(*exit_value);
+                    }
+                    else{
+                        sum = sum + baseFactor.value() * value2Expr(*incomingVal);
+                    }
                     total_factor = total_factor + baseFactor.value();
                 } else {
-                    llvm::errs() << "printExpandedPHI: no TR expression for phi: ";
-                    phi->printAsOperand(llvm::errs(), false);
-                    llvm::errs() << " from basic block: " << GraphBuilder::getName(incomingBB) << "\n";
-                    phi->printAsOperand(llvm::errs(), false);
-                    llvm::errs() << " ignore this incoming value" << "\n";
+                    llvm::errs() << "Warning: inst2Expr PHI: No base factor found for edge from "
+                                 << GraphBuilder::getName(incomingBB) << " to "
+                                 << GraphBuilder::getName(currentBB) << "\n";
+                    return SEM.bvInst(I);
                 }
             }
             return sum/ total_factor; // Normalize by the total factor
@@ -1071,7 +1082,7 @@ SymbolicExpr GA::value2Expr(const llvm::Value& V) {
         if (isSolvable(const_cast<llvm::Value*>(&V))) {
             return inst2Expr(*instruction);
         }
-        llvm::errs() << "Warning: value2Expr unsolvable phi: " << V.getName() << "\n";
+        llvm::errs() << "Warning: value2Expr unsolvable: " << V.getName() << "\n";
     }
     llvm::errs() << "Warning: value2Expr Unsupported value type: " << V.getType()->getTypeID() << "\n";
     return SEM.bvValue(V); 
@@ -1216,29 +1227,72 @@ void GA::printExpandedPHI(const llvm::Value* I, llvm::raw_ostream & os){
     os << ")";
 }
 
+bool GA::isSolvableExitValue(const llvm::Value* v, const llvm::BasicBlock* from, const llvm::BasicBlock* to){
+    
+    //check if from belongs to a loop and to is outside the loop 
+    if (!v || !from || !to) return false;
+    llvm::Loop* loop = LI.getLoopFor(const_cast<llvm::BasicBlock*>(from));
+    if (!loop) return false;
+    if (loop->contains(const_cast<llvm::BasicBlock*>(to))) return false;
+
+    // check if SCEV can compute the exit value of v at the loop exit
+    llvm::ScalarEvolution *SE = &this->SE;
+    if (!SE) return false;
+
+    const llvm::SCEV* scev = SE->getSCEVAtScope(const_cast<llvm::Value*>(v), loop->getParentLoop());
+    if (llvm::isa<llvm::SCEVCouldNotCompute>(scev)) {
+        return false;
+    }
+    return true;
+}
+
+llvm::SCEV* GA::getExitValueSCEV(const llvm::Value* v, const llvm::BasicBlock* from, const llvm::BasicBlock* to){
+    if (!v || !from || !to) return nullptr;
+
+    llvm::Loop* loop = LI.getLoopFor(const_cast<llvm::BasicBlock*>(from));
+    if (!loop) return nullptr;
+    if (loop->contains(const_cast<llvm::BasicBlock*>(to))) return nullptr;
+
+    llvm::ScalarEvolution *SE = &this->SE;
+    if (!SE) return nullptr;
+
+    const llvm::SCEV* scev = SE->getSCEVAtScope(const_cast<llvm::Value*>(v), loop->getParentLoop());
+    if (llvm::isa<llvm::SCEVCouldNotCompute>(scev)) {
+        return nullptr;
+    }
+    return const_cast<llvm::SCEV*>(scev);
+}
+
 bool GA::isSolvable(const llvm::Value* v){
     if (!v) return false;
     std::set<const llvm::Value*> visited;
     std::set<const llvm::Value*> recStack;
 
     std::function<bool(const llvm::Value*)> hasCircularDependency = [&](const llvm::Value* V) -> bool {
+        
         if (recStack.count(V)) return true;
         if (visited.count(V)) return false;
 
         visited.insert(V);
         recStack.insert(V);
 
-        if (auto *I = llvm::dyn_cast<llvm::Instruction>(V)) {
-            for (auto &Op : I->operands()) {
-                if (hasCircularDependency(Op.get()))
-                    return true;
-            }
-        } else if (auto *phi = llvm::dyn_cast<llvm::PHINode>(V)) {
+        if (auto *phi = llvm::dyn_cast<llvm::PHINode>(V)) {
             for (unsigned i = 0; i < phi->getNumIncomingValues(); ++i) {
+                // handle outsider induction variables whose values can be computed through SCEV
+                if(isSolvableExitValue(phi->getIncomingValue(i), phi->getIncomingBlock(i), phi->getParent())){
+                    continue;
+                }
+
                 if (hasCircularDependency(phi->getIncomingValue(i)))
                     return true;
             }
         }
+        else if (auto *I = llvm::dyn_cast<llvm::Instruction>(V)) {
+            for (auto &Op : I->operands()) {
+                if (hasCircularDependency(Op.get()))
+                    return true;
+            }
+        } 
 
         recStack.erase(V);
         return false;
