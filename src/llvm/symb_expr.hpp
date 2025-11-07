@@ -48,6 +48,9 @@ public:
     static SymbolicExpr sgt(const SymbolicExpr& a, const SymbolicExpr& b);
     static SymbolicExpr sge(const SymbolicExpr& a, const SymbolicExpr& b);
     static SymbolicExpr select(const SymbolicExpr& cond, const SymbolicExpr& trueExpr, const SymbolicExpr& falseExpr);
+    static SymbolicExpr ashr(const SymbolicExpr& a, const SymbolicExpr& b);
+    static SymbolicExpr lshr(const SymbolicExpr& a, const SymbolicExpr& b);
+    static SymbolicExpr shl(const SymbolicExpr& a, const SymbolicExpr& b);
 
     unsigned getBitwidth() const;
 

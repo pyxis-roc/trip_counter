@@ -156,6 +156,18 @@ SymbolicExpr SymbolicExpr::select(const SymbolicExpr &cond, const SymbolicExpr &
     return SymbolicExpr(cond.ctx_, ite_expr);
 }
 
+SymbolicExpr SymbolicExpr::ashr(const SymbolicExpr& a, const SymbolicExpr& b) {
+    return SymbolicExpr(a.ctx_, z3::ashr(a.expr_, b.expr_));
+}
+
+SymbolicExpr SymbolicExpr::lshr(const SymbolicExpr& a, const SymbolicExpr& b) {
+    return SymbolicExpr(a.ctx_, z3::lshr(a.expr_, b.expr_));
+}
+
+SymbolicExpr SymbolicExpr::shl(const SymbolicExpr& a, const SymbolicExpr& b) {
+    return SymbolicExpr(a.ctx_, z3::shl(a.expr_, b.expr_));
+}
+
 unsigned SymbolicExpr::getBitwidth() const {
     return expr_.get_sort().bv_size();
 }
