@@ -4,6 +4,7 @@
 */
 
 #include "symb_form.hpp"
+#include "characterize.hpp"
 
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -49,6 +50,11 @@ static cl::opt<bool> Quiet(
 static cl::opt<bool> Time(
     "time",
     cl::desc("Print execution time"),
+    cl::init(false)
+);
+static cl::opt<bool> Characterize(
+    "char",
+    cl::desc("Enable program characterization"),
     cl::init(false)
 );
 
@@ -188,6 +194,14 @@ int main(int argc, char **argv) {
         if (!SubstitutionFile.empty()) {
             llvm::outs() << "Substitution time: " << t_subs.count() << "s\n";
         }
+    }
+
+    // Perform program characterization if the flag is enabled
+    if (Characterize) {
+        analyzeModule(M, *TargetFunc);
+        llvm::outs() << "Number of symbolic loop counts: " << GB.SEM.numLoopCounts << "\n";
+        llvm::outs() << "Number of symbolic true ratios: " << GB.SEM.numTrueRatios << "\n";
+        llvm::outs() << "Number of composite symbolic expressions: " << GB.numComposite << "\n";
     }
 
     return 0;

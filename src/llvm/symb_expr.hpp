@@ -76,6 +76,9 @@ class SymbolicExprManager {
 public:
     explicit SymbolicExprManager();
     ~SymbolicExprManager();
+    
+    int numLoopCounts = 0;
+    int numTrueRatios = 0;
 
     z3::context& context();
 

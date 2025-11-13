@@ -316,10 +316,12 @@ SymbolicExpr SymbolicExprManager::bvNamed(const std::string& name, unsigned bitw
 }
 
 SymbolicExpr SymbolicExprManager::symbTrueRatio(const std::string& name) {
+    numTrueRatios++;
     return named(name);
 }
 
 SymbolicExpr SymbolicExprManager::symbLoopCount(const std::string& name) {
+    numLoopCounts++;
     return named(name);
 }
 

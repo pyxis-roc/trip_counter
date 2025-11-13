@@ -285,6 +285,9 @@ public:
         bool isSolvableExitValue(const llvm::Value*, const llvm::BasicBlock* from, const llvm::BasicBlock* to);
         llvm::SCEV* getExitValueSCEV(const llvm::Value*, const llvm::BasicBlock* from, const llvm::BasicBlock* to);
 
+
+        // debug tracking
+        int numComposite = 0; 
     };
 
     // some utility functions
@@ -306,7 +309,9 @@ public:
         const vector<SymbolicExpr>& withs);
     static void substitute(shared_ptr<BasicGraph> BG, const vector<SymbolicExpr>& originals,
         const vector<SymbolicExpr>& withs);
-        
+    
+    // debug tracking
+    int numComposite = 0; 
 };
 
 class GraphViewer{

@@ -81,6 +81,7 @@ add_executable(
     symb_form.cc
     utils.cc
     symb_expr.cc
+    characterize.cc
 )
 
 target_compile_definitions(symCount PRIVATE IR_PLUGIN_PATH="${PROJECT_SOURCE_DIR}/IR_plugin")

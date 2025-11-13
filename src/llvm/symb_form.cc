@@ -99,6 +99,9 @@ shared_ptr<Program> GraphBuilder::createProgram(llvm::Function * F){
     auto graph = createGraph(SEM.one(), &F->getEntryBlock());
     auto P = std::make_shared<Program>(Program(argList, graph));
     Analysis a(LI, SE, SEM, P, graph2bb);
+
+    // debug tracking
+    numComposite = a.numComposite;
     return P;
 }
 
@@ -956,6 +959,7 @@ SymbolicExpr GA::inst2Expr(const llvm::Instruction& I) {
                     return SEM.bvInst(I);
                 }
             }
+            numComposite++;
             return sum/ total_factor; // Normalize by the total factor
         }
         case llvm::Instruction::And:{
@@ -1051,6 +1055,13 @@ SymbolicExpr GA::inst2Expr(const llvm::Instruction& I) {
             auto trueExpr = value2Expr(*trueVal);
             auto falseExpr = value2Expr(*falseVal);
             return SymbolicExpr::select(condExpr, trueExpr, falseExpr);
+        }
+        case llvm::Instruction::AShr:{
+            auto op0 = I.getOperand(0);
+            auto op1 = I.getOperand(1);
+            auto expr0 = value2Expr(*op0);
+            auto expr1 = value2Expr(*op1);
+            return SymbolicExpr::ashr(expr0, expr1);
         }
         default:
             llvm::errs() << "Warning: inst2Expr Unsupported instruction " << I.getOpcodeName() ;
