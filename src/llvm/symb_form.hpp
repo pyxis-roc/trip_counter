@@ -13,8 +13,10 @@
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Value.h"
+#include <llvm/IR/Instructions.h>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 #include <iostream>
@@ -287,7 +289,7 @@ public:
 
 
         // debug tracking
-        int numComposite = 0; 
+        set<const llvm::PHINode*> compositePHIs;
     };
 
     // some utility functions
@@ -312,6 +314,7 @@ public:
     
     // debug tracking
     int numComposite = 0; 
+    set<shared_ptr<BasicGraph>> earlyExits;
 };
 
 class GraphViewer{

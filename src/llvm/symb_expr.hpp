@@ -10,6 +10,8 @@
 #include "llvm/IR/Instruction.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include <optional>
+#include <set>
+#include <string>
 #include <vector>
 
 
@@ -77,8 +79,9 @@ public:
     explicit SymbolicExprManager();
     ~SymbolicExprManager();
     
-    int numLoopCounts = 0;
-    int numTrueRatios = 0;
+    // Debug tracking, unique loop counts and true ratios
+    std::set<std::string> loopCountNames;
+    std::set<std::string> trueRatioNames;
 
     z3::context& context();
 

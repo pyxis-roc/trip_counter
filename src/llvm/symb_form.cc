@@ -83,7 +83,7 @@ std::shared_ptr<BasicGraph> GraphBuilder::bbTwin(const llvm::BasicBlock* bb, Gra
 
 void GraphBuilder::addFlow(shared_ptr<BasicGraph> BG, shared_ptr<BasicGraph> toAdd) {
     if (!BG || !toAdd) return;
-
+    earlyExits.insert(BG);
     substitute(BG, {BG->count}, {toAdd->count + BG->count});
 }
 
@@ -101,7 +101,7 @@ shared_ptr<Program> GraphBuilder::createProgram(llvm::Function * F){
     Analysis a(LI, SE, SEM, P, graph2bb);
 
     // debug tracking
-    numComposite = a.numComposite;
+    numComposite = a.compositePHIs.size();
     return P;
 }
 
@@ -959,7 +959,9 @@ SymbolicExpr GA::inst2Expr(const llvm::Instruction& I) {
                     return SEM.bvInst(I);
                 }
             }
-            numComposite++;
+            // Debug tracking, record the number of composite PHI nodes processed
+            compositePHIs.insert(phi);
+
             return sum/ total_factor; // Normalize by the total factor
         }
         case llvm::Instruction::And:{

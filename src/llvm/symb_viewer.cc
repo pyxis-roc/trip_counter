@@ -199,8 +199,9 @@ int main(int argc, char **argv) {
     // Perform program characterization if the flag is enabled
     if (Characterize) {
         analyzeModule(M, *TargetFunc);
-        llvm::outs() << "Number of symbolic loop counts: " << GB.SEM.numLoopCounts << "\n";
-        llvm::outs() << "Number of symbolic true ratios: " << GB.SEM.numTrueRatios << "\n";
+        llvm::outs() << "Number of symbolic loop counts: " << GB.SEM.loopCountNames.size() << "\n";
+        llvm::outs() << "Number of symbolic true ratios: " << GB.SEM.trueRatioNames.size() << "\n";
+        llvm::outs() << "Number of early exits: " << GB.earlyExits.size()/2 << "\n";
         llvm::outs() << "Number of composite symbolic expressions: " << GB.numComposite << "\n";
     }
 
