@@ -19,15 +19,16 @@ namespace {
 }
 
 // Constructors
-SymbolicExpr::SymbolicExpr(z3::context& ctx, const z3::expr& expr)
-    : ctx_(ctx), expr_(expr) {}
+SymbolicExpr::SymbolicExpr(z3::context& ctx, const z3::expr& expr, OpType tp, 
+    const std::vector<SymbolicExpr>& operands)
+    : ctx_(ctx), expr_(expr), tp_(tp), operands_(operands) {}
 
 // Copy/move
 SymbolicExpr::SymbolicExpr(const SymbolicExpr& other)
-    : ctx_(other.ctx_), expr_(other.expr_) {}
+    : ctx_(other.ctx_), expr_(other.expr_), tp_(other.tp_), operands_(other.operands_) {}
 
 SymbolicExpr::SymbolicExpr(SymbolicExpr&& other) noexcept
-    : ctx_(other.ctx_), expr_(std::move(other.expr_)) {}
+    : ctx_(other.ctx_), expr_(std::move(other.expr_)), tp_(other.tp_), operands_(std::move(other.operands_)) {}
 
 SymbolicExpr& SymbolicExpr::operator=(const SymbolicExpr& other) {
     if (this != &other) {
@@ -51,121 +52,121 @@ void SymbolicExpr::simplify() {
 }
 
 SymbolicExpr SymbolicExpr::operator+(const SymbolicExpr& rhs) const {
-    return SymbolicExpr(ctx_, expr_ + rhs.expr_);
+    return SymbolicExpr(ctx_, expr_ + rhs.expr_, OpType::ADD, { *this, rhs });
 }
 
 SymbolicExpr SymbolicExpr::operator-(const SymbolicExpr& rhs) const {
-    return SymbolicExpr(ctx_, expr_ - rhs.expr_);
+    return SymbolicExpr(ctx_, expr_ - rhs.expr_, OpType::SUB, { *this, rhs });
 }
 
 SymbolicExpr SymbolicExpr::operator*(const SymbolicExpr& rhs) const {
-    return SymbolicExpr(ctx_, expr_ * rhs.expr_);
+    return SymbolicExpr(ctx_, expr_ * rhs.expr_, OpType::MUL, { *this, rhs });
 }
 
 SymbolicExpr SymbolicExpr::operator/(const SymbolicExpr& rhs) const {
-    return SymbolicExpr(ctx_, expr_ / rhs.expr_);
+    return SymbolicExpr(ctx_, expr_ / rhs.expr_, OpType::DIV, { *this, rhs });
 }
 
 SymbolicExpr SymbolicExpr::operator-() const {
-    return SymbolicExpr(ctx_, -expr_);
+    return SymbolicExpr(ctx_, -expr_, OpType::NEG, { *this });
 }
 
 SymbolicExpr SymbolicExpr::operator&(const SymbolicExpr& rhs) const {
-    return SymbolicExpr(ctx_, expr_ & rhs.expr_);
+    return SymbolicExpr(ctx_, expr_ & rhs.expr_, OpType::AND, { *this, rhs });
 }
 
 SymbolicExpr SymbolicExpr::signedExtend(unsigned additionalBits) const {
-    return SymbolicExpr(ctx_, z3::sext(expr_, additionalBits));
+    return SymbolicExpr(ctx_, z3::sext(expr_, additionalBits), OpType::SEXT, { *this });
 }
 
 SymbolicExpr SymbolicExpr::zeroExtend(unsigned additionalBits) const {
-    return SymbolicExpr(ctx_, z3::zext(expr_, additionalBits));
+    return SymbolicExpr(ctx_, z3::zext(expr_, additionalBits), OpType::ZEXT, { *this });
 }
 
 SymbolicExpr SymbolicExpr::truncate(unsigned additionalBits) const {
-    return SymbolicExpr(ctx_, expr_.extract(additionalBits - 1, 0));
+    return SymbolicExpr(ctx_, expr_.extract(additionalBits - 1, 0), OpType::TRUNC, { *this });
 }
 
 SymbolicExpr SymbolicExpr::smax(const SymbolicExpr& a, const SymbolicExpr& b) {
-    return SymbolicExpr(a.ctx_, z3::max(a.expr_, b.expr_));
+    return SymbolicExpr(a.ctx_, z3::max(a.expr_, b.expr_), OpType::SMAX, { a, b });
 }
 
 SymbolicExpr SymbolicExpr::eq(const SymbolicExpr& a, const SymbolicExpr& b) {
     z3::expr cmp = a.expr_ == b.expr_;
     z3::expr bv = z3::ite(cmp, a.ctx_.bv_val(1, 1), a.ctx_.bv_val(0, 1));
-    return SymbolicExpr(a.ctx_, bv);
+    return SymbolicExpr(a.ctx_, bv, OpType::EQ, { a, b });
 }
 
 SymbolicExpr SymbolicExpr::ne(const SymbolicExpr& a, const SymbolicExpr& b) {
     z3::expr cmp = a.expr_ != b.expr_;
     z3::expr bv = z3::ite(cmp, a.ctx_.bv_val(1, 1), a.ctx_.bv_val(0, 1));
-    return SymbolicExpr(a.ctx_, bv);
+    return SymbolicExpr(a.ctx_, bv, OpType::NE, { a, b });
 }
 
 SymbolicExpr SymbolicExpr::ult(const SymbolicExpr& a, const SymbolicExpr& b) {
     z3::expr cmp = z3::ult(a.expr_, b.expr_);
     z3::expr bv = z3::ite(cmp, a.ctx_.bv_val(1, 1), a.ctx_.bv_val(0, 1));
-    return SymbolicExpr(a.ctx_, bv);
+    return SymbolicExpr(a.ctx_, bv, OpType::ULT, { a, b });
 }
 
 SymbolicExpr SymbolicExpr::ule(const SymbolicExpr& a, const SymbolicExpr& b) {
     z3::expr cmp = z3::ule(a.expr_, b.expr_);
     z3::expr bv = z3::ite(cmp, a.ctx_.bv_val(1, 1), a.ctx_.bv_val(0, 1));
-    return SymbolicExpr(a.ctx_, bv);
+    return SymbolicExpr(a.ctx_, bv, OpType::ULE, { a, b });
 }
 
 SymbolicExpr SymbolicExpr::ugt(const SymbolicExpr& a, const SymbolicExpr& b) {
     z3::expr cmp = z3::ugt(a.expr_, b.expr_);
     z3::expr bv = z3::ite(cmp, a.ctx_.bv_val(1, 1), a.ctx_.bv_val(0, 1));
-    return SymbolicExpr(a.ctx_, bv);
+    return SymbolicExpr(a.ctx_, bv, OpType::UGT, { a, b });
 }
 
 SymbolicExpr SymbolicExpr::uge(const SymbolicExpr& a, const SymbolicExpr& b) {
     z3::expr cmp = z3::uge(a.expr_, b.expr_);
     z3::expr bv = z3::ite(cmp, a.ctx_.bv_val(1, 1), a.ctx_.bv_val(0, 1));
-    return SymbolicExpr(a.ctx_, bv);
+    return SymbolicExpr(a.ctx_, bv, OpType::UGE, { a, b });
 }
 
 SymbolicExpr SymbolicExpr::slt(const SymbolicExpr& a, const SymbolicExpr& b) {
     z3::expr cmp = z3::slt(a.expr_, b.expr_);
     z3::expr bv = z3::ite(cmp, a.ctx_.bv_val(1, 1), a.ctx_.bv_val(0, 1));
-    return SymbolicExpr(a.ctx_, bv);
+    return SymbolicExpr(a.ctx_, bv, OpType::SLT, { a, b });
 }
 
 SymbolicExpr SymbolicExpr::sle(const SymbolicExpr& a, const SymbolicExpr& b) {
     z3::expr cmp = z3::sle(a.expr_, b.expr_);
     z3::expr bv = z3::ite(cmp, a.ctx_.bv_val(1, 1), a.ctx_.bv_val(0, 1));
-    return SymbolicExpr(a.ctx_, bv);
+    return SymbolicExpr(a.ctx_, bv, OpType::SLE, { a, b });
 }
 
 SymbolicExpr SymbolicExpr::sgt(const SymbolicExpr& a, const SymbolicExpr& b) {
     z3::expr cmp = z3::sgt(a.expr_, b.expr_);
     z3::expr bv = z3::ite(cmp, a.ctx_.bv_val(1, 1), a.ctx_.bv_val(0, 1));
-    return SymbolicExpr(a.ctx_, bv);
+    return SymbolicExpr(a.ctx_, bv, OpType::SGT, { a, b });
 }
 
 SymbolicExpr SymbolicExpr::sge(const SymbolicExpr& a, const SymbolicExpr& b) {
     z3::expr cmp = z3::sge(a.expr_, b.expr_);
     z3::expr bv = z3::ite(cmp, a.ctx_.bv_val(1, 1), a.ctx_.bv_val(0, 1));
-    return SymbolicExpr(a.ctx_, bv);
+    return SymbolicExpr(a.ctx_, bv, OpType::SGE, { a, b });
 }
 
 SymbolicExpr SymbolicExpr::select(const SymbolicExpr &cond, const SymbolicExpr &trueExpr, const SymbolicExpr &falseExpr) {
     z3::expr cond_bool = cond.expr_ == cond.ctx_.bv_val(1, cond.expr_.get_sort().bv_size());
     z3::expr ite_expr = z3::ite(cond_bool, trueExpr.expr_, falseExpr.expr_);
-    return SymbolicExpr(cond.ctx_, ite_expr);
+    return SymbolicExpr(cond.ctx_, ite_expr, OpType::SELECT, { cond, trueExpr, falseExpr });
 }
 
 SymbolicExpr SymbolicExpr::ashr(const SymbolicExpr& a, const SymbolicExpr& b) {
-    return SymbolicExpr(a.ctx_, z3::ashr(a.expr_, b.expr_));
+    return SymbolicExpr(a.ctx_, z3::ashr(a.expr_, b.expr_), OpType::ASHR, { a, b });
 }
 
 SymbolicExpr SymbolicExpr::lshr(const SymbolicExpr& a, const SymbolicExpr& b) {
-    return SymbolicExpr(a.ctx_, z3::lshr(a.expr_, b.expr_));
+    return SymbolicExpr(a.ctx_, z3::lshr(a.expr_, b.expr_), OpType::LSHR, { a, b });
 }
 
 SymbolicExpr SymbolicExpr::shl(const SymbolicExpr& a, const SymbolicExpr& b) {
-    return SymbolicExpr(a.ctx_, z3::shl(a.expr_, b.expr_));
+    return SymbolicExpr(a.ctx_, z3::shl(a.expr_, b.expr_), OpType::SHL, { a, b });
 }
 
 unsigned SymbolicExpr::getBitwidth() const {
@@ -422,4 +423,12 @@ std::vector<SymbolicExpr> SymbolicExprManager::getAllProgramExpr() const {
         allExprs.push_back(pair.second);
     }
     return allExprs;
+}
+
+SymbolicExpr::OpType SymbolicExpr::getOpType() const {
+    return tp_;
+}
+
+std::vector<SymbolicExpr> SymbolicExpr::operands() const {
+    return operands_;
 }

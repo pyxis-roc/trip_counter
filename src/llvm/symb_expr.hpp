@@ -5,6 +5,7 @@
 
     It uses the Z3 SMT solver for symbolic reasoning.
 */
+#pragma once
 
 #include "z3++.h"
 #include "llvm/IR/Instruction.h"
@@ -17,8 +18,25 @@
 
 class SymbolicExpr {
 public:
+    enum class ExprType {
+        BV,
+        INT,
+        FRAC
+    };
+
+    enum class OpType {
+        ADD, SUB, MUL, DIV, NEG, AND,
+        SEXT, ZEXT, TRUNC, SMAX,
+        EQ, NE, ULT, ULE, UGT, UGE,
+        SLT, SLE, SGT, SGE,
+        SELECT, ASHR, LSHR, SHL, NONE
+    };
+
+    
+
     // Constructors
-    SymbolicExpr(z3::context& ctx, const z3::expr& expr);
+    SymbolicExpr(z3::context& ctx, const z3::expr& expr, OpType tp = OpType::NONE, 
+        const std::vector<SymbolicExpr>& operands = {});
 
     // Copy/move
     SymbolicExpr(const SymbolicExpr& other);
@@ -54,6 +72,10 @@ public:
     static SymbolicExpr lshr(const SymbolicExpr& a, const SymbolicExpr& b);
     static SymbolicExpr shl(const SymbolicExpr& a, const SymbolicExpr& b);
 
+    // Operands
+    std::vector<SymbolicExpr> operands() const;
+    OpType getOpType() const;
+
     unsigned getBitwidth() const;
 
     // Access underlying Z3 expr
@@ -72,6 +94,8 @@ public:
 private:
     z3::context& ctx_;
     z3::expr expr_;
+    OpType tp_;
+    std::vector<SymbolicExpr> operands_;
 };
 
 class SymbolicExprManager {

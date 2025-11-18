@@ -5,6 +5,7 @@
 
 #include "symb_form.hpp"
 #include "characterize.hpp"
+#include "symb_instance.hpp"
 
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -55,6 +56,11 @@ static cl::opt<bool> Time(
 static cl::opt<bool> Characterize(
     "char",
     cl::desc("Enable program characterization"),
+    cl::init(false)
+);
+static cl::opt<bool> ShowSymbolicInstance(
+    "show-instance",
+    cl::desc("Enable showing symbolic instances"),
     cl::init(false)
 );
 
@@ -136,6 +142,8 @@ int main(int argc, char **argv) {
     }
 
     std::chrono::duration<double> t_subs{0};
+    std::chrono::duration<double> t_check_subs{0}, t_parse_subs{0}, t_apply_subs{0};
+
     // Apply substitutions if provided
     if (!SubstitutionFile.empty()) {
         auto t_subs_start = std::chrono::high_resolution_clock::now();
@@ -145,10 +153,15 @@ int main(int argc, char **argv) {
             errs() << "Failed to open substitution file: " << SubstitutionFile << "\n";
             return 1;
         }
+
+        auto t_check_start = std::chrono::high_resolution_clock::now();
         nlohmann::json subsJson;
         subsFile >> subsJson;
-        
-        vector<SymbolicExpr>inputs;
+        auto t_check_end = std::chrono::high_resolution_clock::now();
+        t_check_subs = t_check_end - t_check_start;
+
+        auto t_parse_start = std::chrono::high_resolution_clock::now();
+        vector<SymbolicExpr> inputs;
         vector<int> inputValues;
         for (auto &var : GB.SEM.getAllProgramExpr()) {
             if (subsJson.contains(var.str())) {
@@ -170,8 +183,14 @@ int main(int argc, char **argv) {
                 }
             }
         }
-        
+        auto t_parse_end = std::chrono::high_resolution_clock::now();
+        t_parse_subs = t_parse_end - t_parse_start;
+
+        auto t_apply_start = std::chrono::high_resolution_clock::now();
         GraphBuilder::substitute(program, inputs, inputValues);
+        auto t_apply_end = std::chrono::high_resolution_clock::now();
+        t_apply_subs = t_apply_end - t_apply_start;
+
         auto t_subs_end = std::chrono::high_resolution_clock::now();
         t_subs = t_subs_end - t_subs_start;
     }
@@ -187,12 +206,45 @@ int main(int argc, char **argv) {
     }
 
     auto t_end = std::chrono::high_resolution_clock::now();
+    
+    if (ShowSymbolicInstance) {
+        llvm::outs() << "Symbolic Instances:\n";
+        SymbInstance instance;
+        std::vector<SymbolicExpr> exprs; // Populate this with symbolic expressions
+        std::vector<SymbolicExpr> inputs; // Populate this with input symbolic expressions
+        std::vector<std::string> basicBlockNames; // Populate this with basic block names
+
+        std::vector<std::shared_ptr<BasicGraph>> basicGraphPtrs;
+        GraphViewer::getAllBasicGraphs(program, basicGraphPtrs);
+
+        for (const auto& bgPtr : basicGraphPtrs) {
+            exprs.push_back(bgPtr->count);
+
+            if (GB.graph2bb.find(bgPtr) != GB.graph2bb.end()) {
+                basicBlockNames.push_back(GB.graph2bb[bgPtr]->getName().str());
+            } else {
+                basicBlockNames.push_back("unknown_bb");
+            }
+        }
+
+        inputs = program->inputs;
+
+        auto module = instance.create(exprs, inputs, basicBlockNames);
+        module->print(llvm::outs(), nullptr);
+    }
 
     if (Time) {
         llvm::outs() << "Total time: " 
-                     << std::chrono::duration<double>(t_end - t_start).count() << "s\n";
+                     << std::chrono::duration<double, std::milli>(t_end - t_start).count() << "ms\n";
         if (!SubstitutionFile.empty()) {
-            llvm::outs() << "Substitution time: " << t_subs.count() << "s\n";
+            llvm::outs() << "Substitution time: " 
+                         << std::chrono::duration<double, std::milli>(t_subs).count() << "ms\n";
+            llvm::outs() << "  - File check time: " 
+                         << std::chrono::duration<double, std::milli>(t_check_subs).count() << "ms\n";
+            llvm::outs() << "  - Parsing substitutions time: " 
+                         << std::chrono::duration<double, std::milli>(t_parse_subs).count() << "ms\n";
+            llvm::outs() << "  - Applying substitutions time: " 
+                         << std::chrono::duration<double, std::milli>(t_apply_subs).count() << "ms\n";
         }
     }
 
