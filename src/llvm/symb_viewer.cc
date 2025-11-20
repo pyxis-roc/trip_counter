@@ -208,16 +208,18 @@ int main(int argc, char **argv) {
     auto t_end = std::chrono::high_resolution_clock::now();
     
     if (ShowSymbolicInstance) {
-        llvm::outs() << "Symbolic Instances:\n";
         SymbInstance instance;
         std::vector<SymbolicExpr> exprs; // Populate this with symbolic expressions
-        std::vector<SymbolicExpr> inputs; // Populate this with input symbolic expressions
+        std::vector<std::string> inputs; // Populate this with input symbolic expressions
         std::vector<std::string> basicBlockNames; // Populate this with basic block names
 
         std::vector<std::shared_ptr<BasicGraph>> basicGraphPtrs;
         GraphViewer::getAllBasicGraphs(program, basicGraphPtrs);
 
         for (const auto& bgPtr : basicGraphPtrs) {
+            if (bgPtr->getGraphType() == GraphType::Loop) {
+                continue; // Skip non-basic block graphs
+            }
             exprs.push_back(bgPtr->count);
 
             if (GB.graph2bb.find(bgPtr) != GB.graph2bb.end()) {
@@ -227,9 +229,13 @@ int main(int argc, char **argv) {
             }
         }
 
-        inputs = program->inputs;
+        /*
+        for (const auto& input : program->inputs) {
+            inputs.push_back(input.z3expr().decl().name().str());
+        }
+        */
 
-        auto module = instance.create(exprs, inputs, basicBlockNames);
+        auto module = instance.create(exprs, basicBlockNames);
         module->print(llvm::outs(), nullptr);
     }
 
