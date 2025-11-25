@@ -21,7 +21,6 @@
 #include <vector>
 #include <iostream>
 #include <nlohmann/json.hpp>
-#include <z3++.h>
 #include <optional>
 
 #include "symb_expr.hpp"

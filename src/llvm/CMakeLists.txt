@@ -23,13 +23,6 @@ include_directories(${LLVM_INCLUDE_DIRS})
 set(Z3_MIN_VERSION "4.15.1")
 find_package(Z3 ${Z3_MIN_VERSION} REQUIRED CONFIG)
 
-# Add the C++ API include directory for z3++.h
-if(TARGET libz3)
-    target_include_directories(libz3 INTERFACE
-        $<BUILD_INTERFACE:${z3_SOURCE_DIR}/src/api/c++>
-    )
-endif()
-
 
 FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz)
 FetchContent_MakeAvailable(json)
@@ -88,6 +81,6 @@ target_compile_definitions(symCount PRIVATE IR_PLUGIN_PATH="${PROJECT_SOURCE_DIR
 target_include_directories(symCount PUBLIC "${PROJECT_SOURCE_DIR}")
 target_link_libraries(symCount LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis nlohmann_json::nlohmann_json)
 target_link_libraries(instr-count LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis nlohmann_json::nlohmann_json)
-target_link_libraries(symb-viewer LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis nlohmann_json::nlohmann_json z3::libz3)
+target_link_libraries(symb-viewer LLVMPasses LLVMCore LLVMSupport LLVMIRReader LLVMAnalysis nlohmann_json::nlohmann_json z3)
 target_compile_options(symb-viewer PRIVATE -O3)
 install(TARGETS symCount instr-count symb-viewer DESTINATION bin)

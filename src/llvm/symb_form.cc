@@ -1,5 +1,6 @@
 #include "symb_form.hpp"
 #include "nlohmann/json_fwd.hpp"
+#include "symb_expr.hpp"
 #include "utils.hpp"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"
@@ -962,7 +963,11 @@ SymbolicExpr GA::inst2Expr(const llvm::Instruction& I) {
             // Debug tracking, record the number of composite PHI nodes processed
             compositePHIs.insert(phi);
 
-            return sum/ total_factor; // Normalize by the total factor
+            // Normalize by the total factor
+            auto normalized_expr = sum / total_factor;
+            auto non_zero_total = SymbolicExpr::ne(total_factor, SEM.intVal(0));
+            return SymbolicExpr::select(non_zero_total, normalized_expr, SEM.intVal(0));
+        
         }
         case llvm::Instruction::And:{
             auto op0 = I.getOperand(0);

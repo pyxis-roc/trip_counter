@@ -1,6 +1,5 @@
 #include <optional>
 #include <string>
-#include <z3++.h>
 #include "symb_expr.hpp"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/IR/Instruction.h"

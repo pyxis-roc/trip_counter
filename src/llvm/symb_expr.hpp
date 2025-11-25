@@ -7,13 +7,13 @@
 */
 #pragma once
 
-#include "z3++.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include <optional>
 #include <set>
 #include <string>
 #include <vector>
+#include <z3++.h>
 
 
 class SymbolicExpr {

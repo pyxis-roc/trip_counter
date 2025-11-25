@@ -13,6 +13,7 @@ that can be run with concrete inputs to produce concrete outputs.
 class SymbInstance {
 private:
     std::map<std::string, llvm::Value*> variableMap;
+    std::map<unsigned, llvm::Value*> exprCache;  // Cache Z3 expr ID -> LLVM Value
 
 public:
     // Return a unique_ptr to avoid copying llvm::Module (non-copyable)
