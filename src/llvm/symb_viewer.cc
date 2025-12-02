@@ -28,53 +28,76 @@
 
 using namespace llvm;
 
-static cl::opt<std::string> InputFilename(cl::Positional, cl::desc("<input LLVM IR file>"), cl::Required);
-static cl::opt<std::string> FunctionName(cl::Positional, cl::desc("<function name to analyze>"), 
-    cl::Required, cl::value_desc("function name"));
+// Subcommands for clearer interface
+static cl::SubCommand KernelCmd("kernel", "Generate kernel-only instance (no main)");
+static cl::SubCommand InstanceCmd("instance", "Generate test instance (with main and parsing)");
+static cl::SubCommand FormulaCmd("formula", "Show symbolic formula/graphs (text or JSON)");
+static cl::SubCommand CharacterizeCmd("characterize", "Run characterization metrics only");
+
+static cl::opt<std::string> InputFilename(
+    cl::Positional, 
+    cl::desc("<input LLVM IR file>"), 
+    cl::Required, 
+    cl::sub(cl::SubCommand::getAll())
+);
+static cl::opt<std::string> FunctionName(
+    cl::Positional, 
+    cl::desc("<function name to analyze>"), 
+    cl::Required, cl::value_desc("function name"), 
+    cl::sub(cl::SubCommand::getAll())
+);
 static cl::opt<std::string> OutputJsonFilename(
     "json",
     cl::desc("Output symbolic form as JSON to the specified file"),
     cl::value_desc("filename"),
-    cl::init("")
+    cl::init(""),
+    cl::sub(FormulaCmd)
 );
 static cl::opt<std::string> SubstitutionFile(
     "subs",
     cl::desc("Substitution JSON file to apply for symbolic expressions"),
     cl::value_desc("filename"),
-    cl::init("")
-);
-static cl::opt<bool> Quiet(
-    "quiet",
-    cl::desc("Suppress all standard output"),
-    cl::init(false)
+    cl::init(""),
+    cl::sub(FormulaCmd)
 );
 static cl::opt<bool> Time(
     "time",
     cl::desc("Print execution time"),
-    cl::init(false)
+    cl::init(false),
+    cl::sub(FormulaCmd)
 );
-static cl::opt<bool> Characterize(
-    "char",
-    cl::desc("Enable program characterization"),
-    cl::init(false)
+// Characterization now via 'characterize' subcommand (removed -char flag)
+// Options under subcommands
+static cl::opt<bool> OutputToFile(
+    "output-to-file",
+    cl::desc("Write results to file instead of stdout (better performance)"), 
+    cl::init(false), 
+    cl::sub(KernelCmd),
+    cl::sub(InstanceCmd)
 );
-static cl::opt<bool> ShowSymbolicInstance(
-    "show-instance",
-    cl::desc("Enable showing symbolic instances"),
-    cl::init(false)
-);
-
 llvm::cl::opt<bool> Help("h", llvm::cl::desc("Print help message"));
 
 void printHelpMessage() {
-    llvm::outs() << "Usage: symb_viewer <input LLVM IR file> <function name to analyze> [options]\n";
-    llvm::outs() << "Options:\n";
-    llvm::outs() << "  -json=<filename>   Output symbolic form as JSON to the specified file\n";
-    llvm::outs() << "  -subs=<filename>   Substitution JSON file to apply for symbolic expressions\n";
-    llvm::outs() << "  -h                 Print help message\n";
-    llvm::outs() << "\n";
-    llvm::outs() << "Example:\n";
-    llvm::outs() << "  symb_viewer input.ll my_function -json=output.json\n";
+    llvm::outs() << "Usage:\n";
+    llvm::outs() << "  symb_viewer <subcommand> <input.ll> <func> [options]\n\n";
+    llvm::outs() << "Subcommands:\n";
+    llvm::outs() << "  kernel        Generate kernel instance (no main)\n";
+    llvm::outs() << "  instance      Generate test instance (with main)\n";
+    llvm::outs() << "  formula       Show symbolic formula (text or -json)\n";
+    llvm::outs() << "  characterize  Run characterization metrics only\n\n";
+    llvm::outs() << "Global Options:\n";
+    llvm::outs() << "  -h                  Print help message\n\n";
+    llvm::outs() << "Formula Options (use with 'formula'):\n";
+    llvm::outs() << "  -json=<file>        Emit JSON file of symbolic graphs\n";
+    llvm::outs() << "  -subs=<file>        Apply substitutions from JSON\n";
+    llvm::outs() << "  -time               Print execution time metrics\n\n";
+    llvm::outs() << "Kernel/Instance Options:\n";
+    llvm::outs() << "  (add --output-to-file to write results binary)\n\n";
+    llvm::outs() << "Examples:\n";
+    llvm::outs() << "  symb_viewer kernel input.ll foo --output-to-file\n";
+    llvm::outs() << "  symb_viewer instance input.ll foo\n";
+    llvm::outs() << "  symb_viewer formula input.ll foo -json=foo.json -subs=vals.json\n";
+    llvm::outs() << "  symb_viewer characterize input.ll foo -time\n";
 }
 
 
@@ -144,8 +167,14 @@ int main(int argc, char **argv) {
     std::chrono::duration<double> t_subs{0};
     std::chrono::duration<double> t_check_subs{0}, t_parse_subs{0}, t_apply_subs{0};
 
-    // Apply substitutions if provided
-    if (!SubstitutionFile.empty()) {
+    // Determine active subcommand modes
+    bool kernelMode = (bool) KernelCmd;
+    bool instanceMode = (bool) InstanceCmd;
+    bool formulaMode = (bool) FormulaCmd;
+    bool characterizeMode = (bool) CharacterizeCmd;
+
+    // Apply substitutions only in formula mode
+    if (formulaMode && !SubstitutionFile.empty()) {
         auto t_subs_start = std::chrono::high_resolution_clock::now();
 
         std::ifstream subsFile(SubstitutionFile);
@@ -195,8 +224,8 @@ int main(int argc, char **argv) {
         t_subs = t_subs_end - t_subs_start;
     }
 
-    // show the symbolic form or output as JSON
-    if(!Quiet){
+    // Show symbolic formula (formula subcommand only)
+    if (formulaMode) {
         if (!OutputJsonFilename.empty()) {
             std::ofstream jsonOut(OutputJsonFilename);
             GraphViewer::showAllBasicGraphsAsJson(program, jsonOut);
@@ -206,11 +235,10 @@ int main(int argc, char **argv) {
     }
 
     auto t_end = std::chrono::high_resolution_clock::now();
-    
-    if (ShowSymbolicInstance) {
+
+    if (instanceMode || kernelMode) {
         SymbInstance instance;
         std::vector<SymbolicExpr> exprs; // Populate this with symbolic expressions
-        std::vector<std::string> inputs; // Populate this with input symbolic expressions
         std::vector<std::string> basicBlockNames; // Populate this with basic block names
 
         std::vector<std::shared_ptr<BasicGraph>> basicGraphPtrs;
@@ -229,20 +257,23 @@ int main(int argc, char **argv) {
             }
         }
 
-        /*
-        for (const auto& input : program->inputs) {
-            inputs.push_back(input.z3expr().decl().name().str());
-        }
-        */
-
-        auto module = instance.create(exprs, basicBlockNames);
+        // generateTestMain: true for instance subcommand, false for kernel
+        bool generateTestMain = instanceMode;
+        // Use instance subcommand flag when active, otherwise kernel's flag
+        auto module = instance.create(
+            exprs, 
+            basicBlockNames, 
+            generateTestMain, 
+            !OutputToFile
+        );
+        llvm::errs() << "Generated symbolic instance module.\n";
         module->print(llvm::outs(), nullptr);
     }
 
     if (Time) {
         llvm::outs() << "Total time: " 
                      << std::chrono::duration<double, std::milli>(t_end - t_start).count() << "ms\n";
-        if (!SubstitutionFile.empty()) {
+        if (formulaMode && !SubstitutionFile.empty()) {
             llvm::outs() << "Substitution time: " 
                          << std::chrono::duration<double, std::milli>(t_subs).count() << "ms\n";
             llvm::outs() << "  - File check time: " 
@@ -254,8 +285,8 @@ int main(int argc, char **argv) {
         }
     }
 
-    // Perform program characterization if the flag is enabled
-    if (Characterize) {
+    // Perform program characterization (characterize subcommand)
+    if (characterizeMode) {
         analyzeModule(M, *TargetFunc);
         llvm::outs() << "Number of symbolic loop counts: " << GB.SEM.loopCountNames.size() << "\n";
         llvm::outs() << "Number of symbolic true ratios: " << GB.SEM.trueRatioNames.size() << "\n";

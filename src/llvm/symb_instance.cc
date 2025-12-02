@@ -34,41 +34,71 @@ void collectSymbols(const z3::expr& e, std::set<std::string>& symbols) {
 }
 
 std::unique_ptr<llvm::Module> SymbInstance::create(const std::vector<SymbolicExpr>& exprs,
-                                                    const std::vector<std::string>& basicBlocks) {
+                                                    const std::vector<std::string>& basicBlocks,
+                                                    bool generateTestMain,
+                                                    bool outputToStdout) {
     // Collect all uninterpreted symbols from expressions
     std::set<std::string> symbolSet;
     for (const auto& expr : exprs) {
         collectSymbols(expr.z3expr(), symbolSet);
     }
     std::vector<std::string> inputs(symbolSet.begin(), symbolSet.end());
-    std::sort(inputs.begin(), inputs.end(), [](const std::string& a, const std::string& b) {
+    std::sort(inputs.begin(), inputs.end(), 
+    [](const std::string& a, const std::string& b) {
         if (a.size() != b.size()) return a.size() < b.size();
         return a < b;
     });
-    
-    // Create an LLVM context and module
-    llvm::LLVMContext *ctx = new llvm::LLVMContext();
-    auto module = std::make_unique<llvm::Module>("SymbolicInstanceModule", *ctx);
 
-    // Clear variable map and expression cache
+    // Setup module and context
+    llvm::LLVMContext *ctx = nullptr;
+    std::unique_ptr<llvm::Module> module;
+    setupModule(module, ctx);
+
+    // Clear maps
     variableMap.clear();
     exprCache.clear();
 
-    // Define the kernel function
-    std::vector<llvm::Type*> argTypes(inputs.size(), llvm::Type::getInt64Ty(*ctx));
-    auto kernelFuncType = llvm::FunctionType::get(
-        llvm::Type::getInt64Ty(*ctx),
-        argTypes,
-        false
-    );
-    auto kernelFunc = llvm::Function::Create(
-        kernelFuncType,
-        llvm::Function::ExternalLinkage,
-        "kernel",
-        module.get()
-    );
+    // Build kernel and entry builder
+    llvm::Function* kernelFunc = buildKernel(module.get(), *ctx, inputs);
+    llvm::BasicBlock* entryBlock = llvm::BasicBlock::Create(*ctx, "entry", kernelFunc);
+    llvm::IRBuilder<> builder(entryBlock);
 
-    // Map inputs to arguments
+    // Declarations used by body/timing helpers
+    llvm::Type* int64Ty = llvm::Type::getInt64Ty(*ctx);
+    llvm::Type* voidPtrTy = llvm::PointerType::get(*ctx, 0);
+    llvm::FunctionType* printfType = llvm::FunctionType::get(
+        llvm::Type::getInt32Ty(*ctx), {voidPtrTy}, true);
+    llvm::FunctionCallee printfFunc = module->getOrInsertFunction("printf", printfType);
+    llvm::Type* timespecTy = nullptr;
+    llvm::FunctionCallee clockGettimeFunc;
+    llvm::Value *startTime = nullptr, *endTime = nullptr;
+    llvm::Value* resultsArray = nullptr;
+
+    emitKernelBody(module.get(), *ctx, builder, exprs, basicBlocks, outputToStdout,
+                   resultsArray, printfFunc, clockGettimeFunc, timespecTy, startTime, endTime);
+
+    emitTiming(module.get(), *ctx, builder, printfFunc, clockGettimeFunc,
+                        timespecTy, startTime, endTime);
+
+    // Optional test main
+    if (generateTestMain) {
+        buildTestMain(module.get(), *ctx, kernelFunc, inputs, printfFunc);
+    }
+
+    builder.CreateRet(llvm::ConstantInt::get(llvm::Type::getInt64Ty(*ctx), 0));
+    return module;
+}
+
+void SymbInstance::setupModule(std::unique_ptr<llvm::Module>& module, llvm::LLVMContext*& ctx) {
+    ctx = new llvm::LLVMContext();
+    module = std::make_unique<llvm::Module>("SymbolicInstanceModule", *ctx);
+}
+
+llvm::Function* SymbInstance::buildKernel(llvm::Module* module, llvm::LLVMContext& ctx,
+                                          const std::vector<std::string>& inputs) {
+    std::vector<llvm::Type*> argTypes(inputs.size(), llvm::Type::getInt64Ty(ctx));
+    auto kernelFuncType = llvm::FunctionType::get(llvm::Type::getInt64Ty(ctx), argTypes, false);
+    auto kernelFunc = llvm::Function::Create(kernelFuncType, llvm::Function::ExternalLinkage, "kernel", module);
     size_t argIdx = 0;
     for (auto& arg : kernelFunc->args()) {
         std::string name = inputs[argIdx];
@@ -76,139 +106,195 @@ std::unique_ptr<llvm::Module> SymbInstance::create(const std::vector<SymbolicExp
         variableMap[name] = &arg;
         argIdx++;
     }
+    return kernelFunc;
+}
 
-    // Create a basic block for the kernel function
-    auto entryBlock = llvm::BasicBlock::Create(*ctx, "entry", kernelFunc);
-    llvm::IRBuilder<> builder(entryBlock);
-
-    // Manifest results via printf directly while computing each expression (no global storage).
-    llvm::Type* int64Ty = llvm::Type::getInt64Ty(*ctx);
-    llvm::Type* voidPtrTy = llvm::PointerType::get(*ctx, 0);
-
-    // int printf(const char*, ...)
-    llvm::FunctionType* printfType = llvm::FunctionType::get(
-        llvm::Type::getInt32Ty(*ctx),
-        {voidPtrTy},
-        true
+void SymbInstance::emitKernelBody(llvm::Module* module, llvm::LLVMContext& ctx,
+                                  llvm::IRBuilder<>& builder,
+                                  const std::vector<SymbolicExpr>& exprs,
+                                  const std::vector<std::string>& basicBlocks,
+                                  bool outputToStdout,
+                                  llvm::Value*& resultsArray,
+                                  llvm::FunctionCallee& printfFunc,
+                                  llvm::FunctionCallee& clockGettimeFunc,
+                                  llvm::Type*& timespecTy,
+                                  llvm::Value*& startTime,
+                                  llvm::Value*& endTime) {
+    llvm::Type* int64Ty = llvm::Type::getInt64Ty(ctx);
+    llvm::Type* voidPtrTy = llvm::PointerType::get(ctx, 0);
+    // printf decl is passed in
+    // clock_gettime decl
+    timespecTy = llvm::StructType::get(ctx, {int64Ty, int64Ty});
+    llvm::Type* timespecPtrTy = llvm::PointerType::get(timespecTy, 0);
+    llvm::FunctionType* clockGettimeType = llvm::FunctionType::get(
+        llvm::Type::getInt32Ty(ctx), 
+        {llvm::Type::getInt32Ty(ctx), timespecPtrTy},
+        false
     );
-    llvm::FunctionCallee printfFunc = module->getOrInsertFunction("printf", printfType);
+    clockGettimeFunc = module->getOrInsertFunction("clock_gettime", clockGettimeType);
 
-    llvm::Value* fmtBlock = builder.CreateGlobalString("%s: %ld\n", "fmt_block");
+    // Allocate timespec
+    startTime = builder.CreateAlloca(timespecTy, nullptr, "start_time");
+    endTime = builder.CreateAlloca(timespecTy, nullptr, "end_time");
 
+    // CLOCK_MONOTONIC = 1
+    llvm::Value* clockId = llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), 1);
+    builder.CreateCall(clockGettimeFunc, {clockId, startTime});
+
+    // Defer array materialization until after computing all results
+
+    llvm::Value* fmtBlock = nullptr;
+    if (outputToStdout) {
+        fmtBlock = builder.CreateGlobalString("%s: %ld\n", "fmt_block");
+    }
+
+    // Collect computed results locally first
+    std::vector<llvm::Value*> localResults;
+    localResults.reserve(exprs.size());
     for (size_t i = 0; i < exprs.size(); ++i) {
-        // Print the value and the corresponding basic block name
         std::string blockName = (i < basicBlocks.size()) ? basicBlocks[i] : "unknown_block";
         llvm::errs() << "Creating print for expression " << i << " in block " << blockName << "\n";
-
-        // Create a value from the symbolic expression (computed on the fly)
-        llvm::Value* value = createValueFromExpr(*ctx, builder, exprs[i]);
-
-        // Print the basic block name and the computed value immediately
-        llvm::Value* blockNamePtr = builder.CreateGlobalString(blockName, "blkname");
-        builder.CreateCall(printfFunc, {fmtBlock, blockNamePtr, value});
-    }
-
-    // Create a `main` function that parses argv into integers and calls `kernel`.
-    {
-        llvm::FunctionType* mainType = llvm::FunctionType::get(
-            llvm::Type::getInt32Ty(*ctx),
-            {
-                llvm::Type::getInt32Ty(*ctx),
-                llvm::PointerType::get(
-                    llvm::PointerType::get(llvm::Type::getInt8Ty(*ctx), 0),
-                    0
-                )
-            },
-            false
-        );
-        llvm::Function* mainFunc = llvm::Function::Create(
-            mainType,
-            llvm::Function::ExternalLinkage,
-            "main",
-            module.get()
-        );
-
-        auto it = mainFunc->arg_begin();
-        llvm::Argument* argcArg = &*it; argcArg->setName("argc"); ++it;
-        llvm::Argument* argvArg = &*it; argvArg->setName("argv");
-
-        llvm::BasicBlock* mainEntry = llvm::BasicBlock::Create(*ctx, "entry", mainFunc);
-        llvm::IRBuilder<> mBuilder(mainEntry);
-
-        // declare atoll: long long atoll(const char*)
-        llvm::FunctionType* atollType = llvm::FunctionType::get(int64Ty, {voidPtrTy}, false);
-        llvm::FunctionCallee atollFunc = module->getOrInsertFunction("atoll", atollType);
-
-        // Prepare arguments for kernel
-        std::vector<llvm::Value*> kernelArgs;
-        // provided = argc - 1  (number of user-provided args excluding program name)
-        llvm::Value* one32 = llvm::ConstantInt::get(llvm::Type::getInt32Ty(*ctx), 1);
-        llvm::Value* provided = mBuilder.CreateSub(argcArg, one32);
-
-        for (size_t i = 0; i < inputs.size(); ++i) {
-            // compute argv index i+1
-            llvm::Value* idx = llvm::ConstantInt::get(llvm::Type::getInt32Ty(*ctx), (uint64_t)(i + 1));
-
-            // prepare types
-            llvm::Type* i8ptrTy = llvm::PointerType::get(llvm::Type::getInt8Ty(*ctx), 0);
-            llvm::Value* one64 = llvm::ConstantInt::get(int64Ty, 1);
-
-            // condition: provided > i
-            llvm::Value* i32const = llvm::ConstantInt::get(llvm::Type::getInt32Ty(*ctx), (uint64_t)i);
-            llvm::Value* cond = mBuilder.CreateICmpSGT(provided, i32const);
-
-            // create blocks for conditional parse
-            llvm::BasicBlock* thenBB = llvm::BasicBlock::Create(*ctx, "parse_then", mainFunc);
-            llvm::BasicBlock* elseBB = llvm::BasicBlock::Create(*ctx, "parse_else", mainFunc);
-            llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(*ctx, "parse_merge", mainFunc);
-
-            mBuilder.CreateCondBr(cond, thenBB, elseBB);
-
-            // then: parse argv[i+1]
-            llvm::Value* parsedVal = nullptr;
-            {
-                llvm::IRBuilder<> thenBuilder(thenBB);
-                llvm::Value* gep = thenBuilder.CreateInBoundsGEP(i8ptrTy, argvArg, idx);
-                llvm::Value* argPtr = thenBuilder.CreateLoad(i8ptrTy, gep);
-                llvm::Value* parsed = thenBuilder.CreateCall(atollFunc, {argPtr});
-                thenBuilder.CreateBr(mergeBB);
-                parsedVal = parsed;
-            }
-
-            // else: use default 1
-            {
-                llvm::IRBuilder<> elseBuilder(elseBB);
-                elseBuilder.CreateBr(mergeBB);
-            }
-
-            // merge: PHI to select parsed or default
-            llvm::IRBuilder<> mergeBuilder(mergeBB);
-            llvm::PHINode* phi = mergeBuilder.CreatePHI(int64Ty, 2);
-            phi->addIncoming(parsedVal, thenBB);
-            phi->addIncoming(one64, elseBB);
-
-            // print input for debug
-            llvm::Value* inputNamePtr = mergeBuilder.CreateGlobalString(inputs[i], "input_name");
-            llvm::Value* fmtInput = mergeBuilder.CreateGlobalString("Input %s: %ld\n", "fmt_input");
-            mergeBuilder.CreateCall(printfFunc, {fmtInput, inputNamePtr, phi});
-
-            kernelArgs.push_back(phi);
-
-            // continue building subsequent IR in a new continue block so next iteration doesn't append to mergeBB
-            llvm::BasicBlock* contBB = llvm::BasicBlock::Create(*ctx, "cont", mainFunc);
-            mergeBuilder.CreateBr(contBB);
-            mBuilder.SetInsertPoint(contBB);
+        llvm::Value* value = createValueFromExpr(ctx, builder, exprs[i]);
+        localResults.push_back(value);
+        if (outputToStdout) {
+            llvm::Value* blockNamePtr = builder.CreateGlobalString(blockName, "blkname");
+            builder.CreateCall(printfFunc, {fmtBlock, blockNamePtr, value});
         }
-
-        // Call kernel
-        llvm::Value* kernelCall = mBuilder.CreateCall(kernelFunc, kernelArgs);
-        (void)kernelCall; // ignore return value
-
-        mBuilder.CreateRet(llvm::ConstantInt::get(llvm::Type::getInt32Ty(*ctx), 0));
     }
+    
+        // Write results to text file if file mode (before timing ends)
+        if (!outputToStdout) {
+            // Materialize array and store all local results before printing
+            llvm::ArrayType* arrayType = llvm::ArrayType::get(int64Ty, exprs.size());
+            resultsArray = builder.CreateAlloca(arrayType, nullptr, "results");
+            for (size_t i = 0; i < localResults.size(); ++i) {
+                llvm::Value* indicesStore[] = {
+                    llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), 0),
+                    llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), (uint64_t)i)
+                };
+                llvm::Value* elementPtrStore = builder.CreateInBoundsGEP(arrayType, resultsArray, indicesStore);
+                builder.CreateStore(localResults[i], elementPtrStore);
+            }
+            llvm::Type* filePtrTy = llvm::PointerType::get(llvm::Type::getInt8Ty(ctx), 0);
+            llvm::FunctionType* fopenType = llvm::FunctionType::get(filePtrTy, {voidPtrTy, voidPtrTy}, false);
+            llvm::FunctionCallee fopenFunc = module->getOrInsertFunction("fopen", fopenType);
+            // int fprintf(FILE*, const char*, ...)
+            llvm::FunctionType* fprintfType = llvm::FunctionType::get(llvm::Type::getInt32Ty(ctx), true);
+            llvm::FunctionCallee fprintfFunc = module->getOrInsertFunction("fprintf", fprintfType);
+            llvm::FunctionType* fcloseType = llvm::FunctionType::get(llvm::Type::getInt32Ty(ctx), {filePtrTy}, false);
+            llvm::FunctionCallee fcloseFunc = module->getOrInsertFunction("fclose", fcloseType);
 
-    builder.CreateRet(llvm::ConstantInt::get(llvm::Type::getInt64Ty(*ctx), 0));
-    return module;
+            llvm::Value* filename = builder.CreateGlobalString("results.txt", "filename_txt");
+            llvm::Value* mode = builder.CreateGlobalString("w", "mode_txt");
+            llvm::Value* file = builder.CreateCall(fopenFunc, {filename, mode});
+
+            // Format string for lines
+            llvm::Value* fmtLine = builder.CreateGlobalString("%ld\n", "fmt_line");
+            // Iterate and print each stored element
+            for (size_t i = 0; i < exprs.size(); ++i) {
+                llvm::Value* indicesPrint[] = {
+                    llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), 0),
+                    llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), (uint64_t)i)
+                };
+                llvm::Value* elemPtr = builder.CreateInBoundsGEP(arrayType, resultsArray, indicesPrint);
+                llvm::Value* elemVal = builder.CreateLoad(int64Ty, elemPtr);
+                builder.CreateCall(fprintfFunc, {file, fmtLine, elemVal});
+            }
+            builder.CreateCall(fcloseFunc, {file});
+        }
+    
+    builder.CreateCall(clockGettimeFunc, {clockId, endTime});
+}
+
+void SymbInstance::emitTiming(llvm::Module* module, llvm::LLVMContext& ctx,
+                                       llvm::IRBuilder<>& builder,
+                                       llvm::FunctionCallee& printfFunc,
+                                       llvm::FunctionCallee& clockGettimeFunc,
+                                       llvm::Type* timespecTy,
+                                       llvm::Value* startTime,
+                                       llvm::Value* endTime) {
+    llvm::Type* int64Ty = llvm::Type::getInt64Ty(ctx);
+    llvm::Type* voidPtrTy = llvm::PointerType::get(ctx, 0);
+    // CLOCK_MONOTONIC = 1
+
+    llvm::Value* startSecPtr = builder.CreateStructGEP(timespecTy, startTime, 0);
+    llvm::Value* startNsecPtr = builder.CreateStructGEP(timespecTy, startTime, 1);
+    llvm::Value* endSecPtr = builder.CreateStructGEP(timespecTy, endTime, 0);
+    llvm::Value* endNsecPtr = builder.CreateStructGEP(timespecTy, endTime, 1);
+    llvm::Value* startSec = builder.CreateLoad(int64Ty, startSecPtr);
+    llvm::Value* startNsec = builder.CreateLoad(int64Ty, startNsecPtr);
+    llvm::Value* endSec = builder.CreateLoad(int64Ty, endSecPtr);
+    llvm::Value* endNsec = builder.CreateLoad(int64Ty, endNsecPtr);
+    llvm::Value* billion = llvm::ConstantInt::get(int64Ty, 1000000000);
+    llvm::Value* startTimeNs = builder.CreateAdd(builder.CreateMul(startSec, billion), startNsec);
+    llvm::Value* endTimeNs = builder.CreateAdd(builder.CreateMul(endSec, billion), endNsec);
+    llvm::Value* elapsedNs = builder.CreateSub(endTimeNs, startTimeNs);
+
+    // Always print timing
+    llvm::Value* fmtTime = builder.CreateGlobalString("Kernel execution time: %ld ns\n", "fmt_time");
+    builder.CreateCall(printfFunc, {fmtTime, elapsedNs});
+}
+
+void SymbInstance::buildTestMain(llvm::Module* module, llvm::LLVMContext& ctx,
+                                 llvm::Function* kernelFunc,
+                                 const std::vector<std::string>& inputs,
+                                 llvm::FunctionCallee printfFunc) {
+    llvm::Type* int64Ty = llvm::Type::getInt64Ty(ctx);
+    llvm::Type* voidPtrTy = llvm::PointerType::get(ctx, 0);
+    llvm::FunctionType* mainType = llvm::FunctionType::get(
+        llvm::Type::getInt32Ty(ctx),
+        {llvm::Type::getInt32Ty(ctx), llvm::PointerType::get(llvm::PointerType::get(llvm::Type::getInt8Ty(ctx), 0), 0)},
+        false);
+    llvm::Function* mainFunc = llvm::Function::Create(mainType, llvm::Function::ExternalLinkage, "main", module);
+    auto it = mainFunc->arg_begin();
+    llvm::Argument* argcArg = &*it; argcArg->setName("argc"); ++it;
+    llvm::Argument* argvArg = &*it; argvArg->setName("argv");
+    llvm::BasicBlock* mainEntry = llvm::BasicBlock::Create(ctx, "entry", mainFunc);
+    llvm::IRBuilder<> mBuilder(mainEntry);
+    llvm::FunctionType* atollType = llvm::FunctionType::get(int64Ty, {voidPtrTy}, false);
+    llvm::FunctionCallee atollFunc = module->getOrInsertFunction("atoll", atollType);
+    std::vector<llvm::Value*> kernelArgs;
+    llvm::Value* one32 = llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), 1);
+    llvm::Value* provided = mBuilder.CreateSub(argcArg, one32);
+    
+    for (size_t i = 0; i < inputs.size(); ++i) {
+        llvm::Value* idx = llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), (uint64_t)(i + 1));
+        llvm::Type* i8ptrTy = llvm::PointerType::get(llvm::Type::getInt8Ty(ctx), 0);
+        llvm::Value* one64 = llvm::ConstantInt::get(int64Ty, 1);
+        llvm::Value* i32const = llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), (uint64_t)i);
+        llvm::Value* cond = mBuilder.CreateICmpSGT(provided, i32const);
+        llvm::BasicBlock* thenBB = llvm::BasicBlock::Create(ctx, "parse_then", mainFunc);
+        llvm::BasicBlock* elseBB = llvm::BasicBlock::Create(ctx, "parse_else", mainFunc);
+        llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(ctx, "parse_merge", mainFunc);
+        mBuilder.CreateCondBr(cond, thenBB, elseBB);
+        llvm::Value* parsedVal = nullptr;
+        {
+            llvm::IRBuilder<> thenBuilder(thenBB);
+            llvm::Value* gep = thenBuilder.CreateInBoundsGEP(i8ptrTy, argvArg, idx);
+            llvm::Value* argPtr = thenBuilder.CreateLoad(i8ptrTy, gep);
+            llvm::Value* parsed = thenBuilder.CreateCall(atollFunc, {argPtr});
+            thenBuilder.CreateBr(mergeBB);
+            parsedVal = parsed;
+        }
+        {
+            llvm::IRBuilder<> elseBuilder(elseBB);
+            elseBuilder.CreateBr(mergeBB);
+        }
+        llvm::IRBuilder<> mergeBuilder(mergeBB);
+        llvm::PHINode* phi = mergeBuilder.CreatePHI(int64Ty, 2);
+        phi->addIncoming(parsedVal, thenBB);
+        phi->addIncoming(one64, elseBB);
+        llvm::Value* inputNamePtr = mergeBuilder.CreateGlobalString(inputs[i], "input_name");
+        llvm::Value* fmtInput = mergeBuilder.CreateGlobalString("Input %s: %ld\n", "fmt_input");
+        mergeBuilder.CreateCall(printfFunc, {fmtInput, inputNamePtr, phi});
+        kernelArgs.push_back(phi);
+        llvm::BasicBlock* contBB = llvm::BasicBlock::Create(ctx, "cont", mainFunc);
+        mergeBuilder.CreateBr(contBB);
+        mBuilder.SetInsertPoint(contBB);
+    }
+    llvm::Value* kernelCall = mBuilder.CreateCall(kernelFunc, kernelArgs);
+    (void)kernelCall;
+    mBuilder.CreateRet(llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), 0));
 }
 
 llvm::Value* SymbInstance::createValueFromExpr(llvm::LLVMContext& ctx, llvm::IRBuilder<>& builder, const SymbolicExpr& expr) {
