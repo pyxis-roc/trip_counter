@@ -60,6 +60,12 @@ static cl::opt<std::string> SubstitutionFile(
     cl::init(""),
     cl::sub(FormulaCmd)
 );
+static cl::opt<bool> Quiet(
+    "quiet",
+    cl::desc("Suppress textual formula output (only JSON if -json is set)"),
+    cl::init(false),
+    cl::sub(FormulaCmd)
+);
 static cl::opt<bool> Time(
     "time",
     cl::desc("Print execution time"),
@@ -91,6 +97,7 @@ void printHelpMessage() {
     llvm::outs() << "  -json=<file>        Emit JSON file of symbolic graphs\n";
     llvm::outs() << "  -subs=<file>        Apply substitutions from JSON\n";
     llvm::outs() << "  -time               Print execution time metrics\n\n";
+    llvm::outs() << "  -quiet              Suppress textual output (use with -json)\n\n";
     llvm::outs() << "Kernel/Instance Options:\n";
     llvm::outs() << "  (add --output-to-file to write results binary)\n\n";
     llvm::outs() << "Examples:\n";
@@ -229,7 +236,7 @@ int main(int argc, char **argv) {
         if (!OutputJsonFilename.empty()) {
             std::ofstream jsonOut(OutputJsonFilename);
             GraphViewer::showAllBasicGraphsAsJson(program, jsonOut);
-        } else {
+        } else if (!Quiet) {
             GraphViewer::showProgram(program);
         }
     }

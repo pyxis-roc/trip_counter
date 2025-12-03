@@ -69,16 +69,13 @@ std::unique_ptr<llvm::Module> SymbInstance::create(const std::vector<SymbolicExp
     llvm::FunctionType* printfType = llvm::FunctionType::get(
         llvm::Type::getInt32Ty(*ctx), {voidPtrTy}, true);
     llvm::FunctionCallee printfFunc = module->getOrInsertFunction("printf", printfType);
-    llvm::Type* timespecTy = nullptr;
-    llvm::FunctionCallee clockGettimeFunc;
-    llvm::Value *startTime = nullptr, *endTime = nullptr;
+    llvm::Value *endTime = nullptr;
     llvm::Value* resultsArray = nullptr;
 
     emitKernelBody(module.get(), *ctx, builder, exprs, basicBlocks, outputToStdout,
-                   resultsArray, printfFunc, clockGettimeFunc, timespecTy, startTime, endTime);
+                   resultsArray, printfFunc, endTime);
 
-    emitTiming(module.get(), *ctx, builder, printfFunc, clockGettimeFunc,
-                        timespecTy, startTime, endTime);
+    emitTiming(module.get(), *ctx, builder, printfFunc, endTime);
 
     // Optional test main
     if (generateTestMain) {
@@ -116,30 +113,17 @@ void SymbInstance::emitKernelBody(llvm::Module* module, llvm::LLVMContext& ctx,
                                   bool outputToStdout,
                                   llvm::Value*& resultsArray,
                                   llvm::FunctionCallee& printfFunc,
-                                  llvm::FunctionCallee& clockGettimeFunc,
-                                  llvm::Type*& timespecTy,
-                                  llvm::Value*& startTime,
                                   llvm::Value*& endTime) {
     llvm::Type* int64Ty = llvm::Type::getInt64Ty(ctx);
     llvm::Type* voidPtrTy = llvm::PointerType::get(ctx, 0);
     // printf decl is passed in
-    // clock_gettime decl
-    timespecTy = llvm::StructType::get(ctx, {int64Ty, int64Ty});
-    llvm::Type* timespecPtrTy = llvm::PointerType::get(timespecTy, 0);
-    llvm::FunctionType* clockGettimeType = llvm::FunctionType::get(
-        llvm::Type::getInt32Ty(ctx), 
-        {llvm::Type::getInt32Ty(ctx), timespecPtrTy},
-        false
-    );
-    clockGettimeFunc = module->getOrInsertFunction("clock_gettime", clockGettimeType);
-
-    // Allocate timespec
-    startTime = builder.CreateAlloca(timespecTy, nullptr, "start_time");
-    endTime = builder.CreateAlloca(timespecTy, nullptr, "end_time");
-
-    // CLOCK_MONOTONIC = 1
-    llvm::Value* clockId = llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), 1);
-    builder.CreateCall(clockGettimeFunc, {clockId, startTime});
+    
+    // Use RDTSC for cycle-accurate timing (llvm.readcyclecounter intrinsic)
+    llvm::FunctionType* rdtscType = llvm::FunctionType::get(int64Ty, {}, false);
+    llvm::FunctionCallee rdtscFunc = module->getOrInsertFunction("llvm.readcyclecounter", rdtscType);
+    
+    // Capture start cycles
+    llvm::Value* startCycles = builder.CreateCall(rdtscFunc);
 
     // Defer array materialization until after computing all results
 
@@ -150,89 +134,94 @@ void SymbInstance::emitKernelBody(llvm::Module* module, llvm::LLVMContext& ctx,
 
     // Collect computed results locally first
     std::vector<llvm::Value*> localResults;
+    std::vector<std::string> blockNames;
     localResults.reserve(exprs.size());
+    blockNames.reserve(exprs.size());
     for (size_t i = 0; i < exprs.size(); ++i) {
         std::string blockName = (i < basicBlocks.size()) ? basicBlocks[i] : "unknown_block";
-        llvm::errs() << "Creating print for expression " << i << " in block " << blockName << "\n";
         llvm::Value* value = createValueFromExpr(ctx, builder, exprs[i]);
         localResults.push_back(value);
-        if (outputToStdout) {
-            llvm::Value* blockNamePtr = builder.CreateGlobalString(blockName, "blkname");
-            builder.CreateCall(printfFunc, {fmtBlock, blockNamePtr, value});
+        blockNames.push_back(blockName);
+    }
+    
+    // Capture end cycles and compute elapsed
+    llvm::Value* endCycles = builder.CreateCall(rdtscFunc);
+    llvm::Value* elapsedCycles = builder.CreateSub(endCycles, startCycles);
+    
+    // Store elapsed cycles for emitTiming
+    endTime = builder.CreateAlloca(int64Ty, nullptr, "elapsed_cycles");
+    builder.CreateStore(elapsedCycles, endTime);
+
+    // Print to stdout after all values computed
+    if (outputToStdout) {
+        for (size_t i = 0; i < localResults.size(); ++i) {
+            llvm::Value* blockNamePtr = builder.CreateGlobalString(blockNames[i], "blkname");
+            builder.CreateCall(printfFunc, {fmtBlock, blockNamePtr, localResults[i]});
         }
     }
     
-        // Write results to text file if file mode (before timing ends)
-        if (!outputToStdout) {
-            // Materialize array and store all local results before printing
-            llvm::ArrayType* arrayType = llvm::ArrayType::get(int64Ty, exprs.size());
-            resultsArray = builder.CreateAlloca(arrayType, nullptr, "results");
-            for (size_t i = 0; i < localResults.size(); ++i) {
-                llvm::Value* indicesStore[] = {
-                    llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), 0),
-                    llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), (uint64_t)i)
-                };
-                llvm::Value* elementPtrStore = builder.CreateInBoundsGEP(arrayType, resultsArray, indicesStore);
-                builder.CreateStore(localResults[i], elementPtrStore);
-            }
-            llvm::Type* filePtrTy = llvm::PointerType::get(llvm::Type::getInt8Ty(ctx), 0);
-            llvm::FunctionType* fopenType = llvm::FunctionType::get(filePtrTy, {voidPtrTy, voidPtrTy}, false);
-            llvm::FunctionCallee fopenFunc = module->getOrInsertFunction("fopen", fopenType);
-            // int fprintf(FILE*, const char*, ...)
-            llvm::FunctionType* fprintfType = llvm::FunctionType::get(llvm::Type::getInt32Ty(ctx), true);
-            llvm::FunctionCallee fprintfFunc = module->getOrInsertFunction("fprintf", fprintfType);
-            llvm::FunctionType* fcloseType = llvm::FunctionType::get(llvm::Type::getInt32Ty(ctx), {filePtrTy}, false);
-            llvm::FunctionCallee fcloseFunc = module->getOrInsertFunction("fclose", fcloseType);
-
-            llvm::Value* filename = builder.CreateGlobalString("results.txt", "filename_txt");
-            llvm::Value* mode = builder.CreateGlobalString("w", "mode_txt");
-            llvm::Value* file = builder.CreateCall(fopenFunc, {filename, mode});
-
-            // Format string for lines
-            llvm::Value* fmtLine = builder.CreateGlobalString("%ld\n", "fmt_line");
-            // Iterate and print each stored element
-            for (size_t i = 0; i < exprs.size(); ++i) {
-                llvm::Value* indicesPrint[] = {
-                    llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), 0),
-                    llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), (uint64_t)i)
-                };
-                llvm::Value* elemPtr = builder.CreateInBoundsGEP(arrayType, resultsArray, indicesPrint);
-                llvm::Value* elemVal = builder.CreateLoad(int64Ty, elemPtr);
-                builder.CreateCall(fprintfFunc, {file, fmtLine, elemVal});
-            }
-            builder.CreateCall(fcloseFunc, {file});
+    // Write results to text file if file mode (before timing ends)
+    if (!outputToStdout) {
+        // Materialize array and store all local results before printing
+        llvm::ArrayType* arrayType = llvm::ArrayType::get(int64Ty, exprs.size());
+        resultsArray = builder.CreateAlloca(arrayType, nullptr, "results");
+        for (size_t i = 0; i < localResults.size(); ++i) {
+            llvm::Value* indicesStore[] = {
+                llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), 0),
+                llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), (uint64_t)i)
+            };
+            llvm::Value* elementPtrStore = builder.CreateInBoundsGEP(arrayType, resultsArray, indicesStore);
+            builder.CreateStore(localResults[i], elementPtrStore);
         }
+        llvm::Type* filePtrTy = llvm::PointerType::get(llvm::Type::getInt8Ty(ctx), 0);
+        llvm::FunctionType* fopenType = llvm::FunctionType::get(filePtrTy, {voidPtrTy, voidPtrTy}, false);
+        llvm::FunctionCallee fopenFunc = module->getOrInsertFunction("fopen", fopenType);
+        // int fprintf(FILE*, const char*, ...)
+        llvm::FunctionType* fprintfType = llvm::FunctionType::get(llvm::Type::getInt32Ty(ctx), true);
+        llvm::FunctionCallee fprintfFunc = module->getOrInsertFunction("fprintf", fprintfType);
+        llvm::FunctionType* fcloseType = llvm::FunctionType::get(llvm::Type::getInt32Ty(ctx), {filePtrTy}, false);
+        llvm::FunctionCallee fcloseFunc = module->getOrInsertFunction("fclose", fcloseType);
+
+        llvm::Value* filename = builder.CreateGlobalString("results.txt", "filename_txt");
+        llvm::Value* mode = builder.CreateGlobalString("w", "mode_txt");
+        llvm::Value* file = builder.CreateCall(fopenFunc, {filename, mode});
+
+        // Format string for lines
+        llvm::Value* fmtLine = builder.CreateGlobalString("%ld\n", "fmt_line");
+        // Iterate and print each stored element
+        for (size_t i = 0; i < exprs.size(); ++i) {
+            llvm::Value* indicesPrint[] = {
+                llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), 0),
+                llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), (uint64_t)i)
+            };
+            llvm::Value* elemPtr = builder.CreateInBoundsGEP(arrayType, resultsArray, indicesPrint);
+            llvm::Value* elemVal = builder.CreateLoad(int64Ty, elemPtr);
+            builder.CreateCall(fprintfFunc, {file, fmtLine, elemVal});
+        }
+        builder.CreateCall(fcloseFunc, {file});
+    }
     
-    builder.CreateCall(clockGettimeFunc, {clockId, endTime});
 }
 
 void SymbInstance::emitTiming(llvm::Module* module, llvm::LLVMContext& ctx,
                                        llvm::IRBuilder<>& builder,
                                        llvm::FunctionCallee& printfFunc,
-                                       llvm::FunctionCallee& clockGettimeFunc,
-                                       llvm::Type* timespecTy,
-                                       llvm::Value* startTime,
                                        llvm::Value* endTime) {
     llvm::Type* int64Ty = llvm::Type::getInt64Ty(ctx);
-    llvm::Type* voidPtrTy = llvm::PointerType::get(ctx, 0);
-    // CLOCK_MONOTONIC = 1
-
-    llvm::Value* startSecPtr = builder.CreateStructGEP(timespecTy, startTime, 0);
-    llvm::Value* startNsecPtr = builder.CreateStructGEP(timespecTy, startTime, 1);
-    llvm::Value* endSecPtr = builder.CreateStructGEP(timespecTy, endTime, 0);
-    llvm::Value* endNsecPtr = builder.CreateStructGEP(timespecTy, endTime, 1);
-    llvm::Value* startSec = builder.CreateLoad(int64Ty, startSecPtr);
-    llvm::Value* startNsec = builder.CreateLoad(int64Ty, startNsecPtr);
-    llvm::Value* endSec = builder.CreateLoad(int64Ty, endSecPtr);
-    llvm::Value* endNsec = builder.CreateLoad(int64Ty, endNsecPtr);
-    llvm::Value* billion = llvm::ConstantInt::get(int64Ty, 1000000000);
-    llvm::Value* startTimeNs = builder.CreateAdd(builder.CreateMul(startSec, billion), startNsec);
-    llvm::Value* endTimeNs = builder.CreateAdd(builder.CreateMul(endSec, billion), endNsec);
-    llvm::Value* elapsedNs = builder.CreateSub(endTimeNs, startTimeNs);
-
-    // Always print timing
-    llvm::Value* fmtTime = builder.CreateGlobalString("Kernel execution time: %ld ns\n", "fmt_time");
-    builder.CreateCall(printfFunc, {fmtTime, elapsedNs});
+    llvm::Type* doubleTy = llvm::Type::getDoubleTy(ctx);
+    
+    // Load elapsed cycles from storage
+    llvm::Value* elapsedCycles = builder.CreateLoad(int64Ty, endTime, "elapsed_cycles");
+    
+    // Convert cycles to nanoseconds using fixed CPU frequency: 1266 MHz = 1.266 GHz
+    // nanoseconds = cycles / GHz = cycles / 1.266
+    llvm::Value* cyclesDouble = builder.CreateUIToFP(elapsedCycles, doubleTy, "cycles_fp");
+    llvm::Value* cpuFreqGHz = llvm::ConstantFP::get(doubleTy, 1.266);
+    llvm::Value* nanoseconds = builder.CreateFDiv(cyclesDouble, cpuFreqGHz, "nanoseconds");
+    
+    // Print both cycles and nanoseconds
+    llvm::Value* fmtTime = builder.CreateGlobalString("Kernel execution time: %ld cycles (%.2f ns @ 1.266 GHz)", "fmt_cycles_ns");
+    builder.CreateCall(printfFunc, {fmtTime, elapsedCycles, nanoseconds});
 }
 
 void SymbInstance::buildTestMain(llvm::Module* module, llvm::LLVMContext& ctx,
@@ -503,8 +492,11 @@ llvm::Value* SymbInstance::createValueFromZ3Expr(llvm::LLVMContext& ctx, llvm::I
             return cacheAndReturn(result);
         }
         case Z3_OP_BNOT:
-            llvm::errs()<< "[DEBUG] Handling Z3_OP_BNOT" << expr.to_string() << "\n";
-            return cacheAndReturn(builder.CreateXor(llvmOps[0], llvm::ConstantInt::get(llvmOps[0]->getType(), 1), "bnottmp"));
+            return cacheAndReturn(builder.CreateXor(
+                llvmOps[0],
+                llvm::ConstantInt::get(llvmOps[0]->getType(), 1), 
+                "bnottmp")
+            );
         case Z3_OP_NOT:
             return cacheAndReturn(builder.CreateNot(llvmOps[0], "nottmp"));
         case Z3_OP_BSHL:
@@ -520,7 +512,9 @@ llvm::Value* SymbInstance::createValueFromZ3Expr(llvm::LLVMContext& ctx, llvm::I
             if (cond->getType()->isIntegerTy() && cond->getType()->getIntegerBitWidth() > 1) {
                 cond = builder.CreateTrunc(cond, llvm::Type::getInt1Ty(ctx), "condtrunc");
             }
-            return cacheAndReturn(builder.CreateSelect(cond, llvmOps[1], llvmOps[2], "selecttmp"));
+            return cacheAndReturn(
+                builder.CreateSelect(cond, llvmOps[1], llvmOps[2], "selecttmp")
+            );
         }
 
         case Z3_OP_EQ:
@@ -663,7 +657,10 @@ llvm::Value* SymbInstance::createValueFromZ3Expr(llvm::LLVMContext& ctx, llvm::I
             // Extend parts to destination width
             if (high->getType() != dstTy) high = builder.CreateZExt(high, dstTy);
             if (low->getType() != dstTy) low = builder.CreateZExt(low, dstTy);
-            llvm::Value* high_shifted = builder.CreateShl(high, llvm::ConstantInt::get(dstTy, low_width));
+            llvm::Value* high_shifted = builder.CreateShl(
+                high, 
+                llvm::ConstantInt::get(dstTy, low_width)
+            );
             return cacheAndReturn(builder.CreateOr(high_shifted, low));
         }
 
@@ -689,9 +686,147 @@ llvm::Value* SymbInstance::createValueFromZ3Expr(llvm::LLVMContext& ctx, llvm::I
             return cacheAndReturn(llvm::ConstantInt::get(int64Ty, 0));
         }
 
+        // Additional bit-vector operations
+        case Z3_OP_BAND:
+            return cacheAndReturn(builder.CreateAnd(llvmOps[0], llvmOps[1], "bandtmp"));
+        case Z3_OP_BOR:
+            return cacheAndReturn(builder.CreateOr(llvmOps[0], llvmOps[1], "bortmp"));
+        case Z3_OP_BNAND:
+            return cacheAndReturn(builder.CreateNot(builder.CreateAnd(
+                llvmOps[0], 
+                llvmOps[1], 
+                "andtmp"), 
+                "bnandtmp")
+            );
+        case Z3_OP_BNOR:
+            return cacheAndReturn(builder.CreateNot(
+                builder.CreateOr(llvmOps[0], llvmOps[1], "ortmp"), 
+                "bnortmp")
+            );
+        case Z3_OP_BXNOR:
+            return cacheAndReturn(builder.CreateNot(
+                builder.CreateXor(llvmOps[0], llvmOps[1], "xortmp"), "bxnortmp")
+            );
+        
+        // Bit-vector rotation operations
+        case Z3_OP_ROTATE_LEFT: {
+            unsigned rotateAmount = expr.get_sort().bv_size();
+            if (expr.num_args() == 2) {
+                // Variable rotation
+                llvm::Value* shl = builder.CreateShl(llvmOps[0], llvmOps[1]);
+                llvm::Value* width = llvm::ConstantInt::get(llvmOps[1]->getType(), bitWidth);
+                llvm::Value* shrAmount = builder.CreateSub(width, llvmOps[1]);
+                llvm::Value* shr = builder.CreateLShr(llvmOps[0], shrAmount);
+                return cacheAndReturn(builder.CreateOr(shl, shr, "rotltmp"));
+            } else {
+                // Fixed rotation amount from decl parameter
+                rotateAmount = expr.decl().num_parameters() > 0 ? 
+                    Z3_get_decl_int_parameter(expr.ctx(), expr.decl(), 0) : 0;
+                llvm::Value* shl = builder.CreateShl(llvmOps[0], llvm::ConstantInt::get(intTy, rotateAmount));
+                llvm::Value* shr = builder.CreateLShr(llvmOps[0], llvm::ConstantInt::get(intTy, bitWidth - rotateAmount));
+                return cacheAndReturn(builder.CreateOr(shl, shr, "rotltmp"));
+            }
+        }
+        case Z3_OP_ROTATE_RIGHT: {
+            unsigned rotateAmount = expr.get_sort().bv_size();
+            if (expr.num_args() == 2) {
+                // Variable rotation
+                llvm::Value* shr = builder.CreateLShr(llvmOps[0], llvmOps[1]);
+                llvm::Value* width = llvm::ConstantInt::get(llvmOps[1]->getType(), bitWidth);
+                llvm::Value* shlAmount = builder.CreateSub(width, llvmOps[1]);
+                llvm::Value* shl = builder.CreateShl(llvmOps[0], shlAmount);
+                return cacheAndReturn(builder.CreateOr(shr, shl, "rotrtmp"));
+            } else {
+                // Fixed rotation amount from decl parameter
+                rotateAmount = expr.decl().num_parameters() > 0 ? 
+                    Z3_get_decl_int_parameter(expr.ctx(), expr.decl(), 0) : 0;
+                llvm::Value* shr = builder.CreateLShr(
+                    llvmOps[0], 
+                    llvm::ConstantInt::get(intTy, rotateAmount)
+                );
+                llvm::Value* shl = builder.CreateShl(
+                    llvmOps[0], 
+                    llvm::ConstantInt::get(intTy, bitWidth - rotateAmount)
+                );
+                return cacheAndReturn(builder.CreateOr(shr, shl, "rotrtmp"));
+            }
+        }
+        
+        // Bit-vector extension operations (already handled above, but adding for completeness)
+        case Z3_OP_EXT_ROTATE_LEFT:
+        case Z3_OP_EXT_ROTATE_RIGHT:
+            // These are typically expanded by Z3 into standard operations
+            llvm::errs() << "Warning: Extended rotation operations should be expanded by Z3\n";
+            return cacheAndReturn(llvmOps[0]);
+        
+        // Bit-vector reduction operations
+        case Z3_OP_BCOMP: {
+            // Bit-vector comparison: returns 1-bit result (1 if equal, 0 otherwise)
+            llvm::Value* cmp = builder.CreateICmpEQ(llvmOps[0], llvmOps[1]);
+            return cacheAndReturn(builder.CreateZExt(cmp, intTy, "bcomptmp"));
+        }
+        
+        case Z3_OP_BREDAND: {
+            // Reduction AND: result is 1 if all bits are 1
+            llvm::Value* allOnes = llvm::ConstantInt::get(llvmOps[0]->getType(), -1);
+            llvm::Value* cmp = builder.CreateICmpEQ(llvmOps[0], allOnes);
+            return cacheAndReturn(builder.CreateZExt(cmp, intTy, "bredandtmp"));
+        }
+        
+        case Z3_OP_BREDOR: {
+            // Reduction OR: result is 1 if any bit is 1
+            llvm::Value* zero = llvm::ConstantInt::get(llvmOps[0]->getType(), 0);
+            llvm::Value* cmp = builder.CreateICmpNE(llvmOps[0], zero);
+            return cacheAndReturn(builder.CreateZExt(cmp, intTy, "bredortmp"));
+        }
+        
+        // Integer to bit-vector conversion
+        case Z3_OP_INT2BV: {
+            // Convert integer to bit-vector of specified width
+            if (llvmOps[0]->getType()->getIntegerBitWidth() == bitWidth) {
+                return cacheAndReturn(llvmOps[0]);
+            } else if (llvmOps[0]->getType()->getIntegerBitWidth() < bitWidth) {
+                return cacheAndReturn(builder.CreateZExt(llvmOps[0], intTy, "int2bv"));
+            } else {
+                return cacheAndReturn(builder.CreateTrunc(llvmOps[0], intTy, "int2bv"));
+            }
+        }
+        
+        // Bit-vector to integer conversion
+        case Z3_OP_BV2INT: {
+            // Convert bit-vector to integer (already in integer representation)
+            return cacheAndReturn(llvmOps[0]);
+        }
+        
+        // Bit-vector carry operations
+        case Z3_OP_CARRY: {
+            // Carry bit from addition: (x + y) < x
+            llvm::Value* sum = builder.CreateAdd(llvmOps[0], llvmOps[1]);
+            llvm::Value* carry = builder.CreateICmpULT(sum, llvmOps[0]);
+            return cacheAndReturn(builder.CreateZExt(carry, intTy, "carrytmp"));
+        }
+        
+        // Bit-vector repeat operation
+        case Z3_OP_REPEAT: {
+            unsigned repeatCount = expr.decl().num_parameters() > 0 ? 
+                Z3_get_decl_int_parameter(expr.ctx(), expr.decl(), 0) : 1;
+            llvm::Value* result = llvmOps[0];
+            unsigned srcWidth = llvmOps[0]->getType()->getIntegerBitWidth();
+            for (unsigned i = 1; i < repeatCount; ++i) {
+                llvm::Value* shifted = builder.CreateShl(
+                    result, 
+                    llvm::ConstantInt::get(intTy, srcWidth)
+                );
+                llvm::Value* extended = builder.CreateZExt(llvmOps[0], result->getType());
+                result = builder.CreateOr(shifted, extended, "repeattmp");
+            }
+            return cacheAndReturn(result);
+        }
+
         default:
             // Fallback: treat as constant zero
             (void)kind;
+            llvm::errs() << "Warning: Unhandled Z3 expression kind " << kind << ", defaulting to zero.\n";
             return cacheAndReturn(llvm::ConstantInt::get(int64Ty, 0));
     }
 }

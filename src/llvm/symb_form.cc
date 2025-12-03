@@ -1070,6 +1070,21 @@ SymbolicExpr GA::inst2Expr(const llvm::Instruction& I) {
             auto expr1 = value2Expr(*op1);
             return SymbolicExpr::ashr(expr0, expr1);
         }
+        case llvm::Instruction::Trunc:{
+            auto op = I.getOperand(0);
+            auto expr = value2Expr(*op);
+            unsigned targetBitwidth = I.getType()->getPrimitiveSizeInBits();
+            unsigned srcBitwidth = expr.getBitwidth();
+            if (targetBitwidth < srcBitwidth) {
+                return expr.truncate(targetBitwidth);
+            } else if (targetBitwidth == srcBitwidth) {
+                return expr;
+            } else {
+                llvm::errs() << "Warning: Trunc target bitwidth greater than source bitwidth: "
+                             << targetBitwidth << " > " << srcBitwidth << "\n";
+                return SEM.bvInst(I);
+            }
+        }
         default:
             llvm::errs() << "Warning: inst2Expr Unsupported instruction " << I.getOpcodeName() ;
             I.print(llvm::errs());

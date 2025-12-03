@@ -334,6 +334,20 @@ SymbolicExpr SymbolicExprManager::bvInst(const llvm::Instruction& I) {
     }
     static int counter = 0;
     std::string name = "inst_" + I.getName().str() + "_" + std::to_string(++counter);
+    if (I.getName().str().empty()) {
+        const llvm::BasicBlock* BB = I.getParent();
+        std::string bbStr;
+        if (!BB) {
+            bbStr = "null";
+        } else {
+            llvm::raw_string_ostream rso(bbStr);
+            const_cast<llvm::BasicBlock*>(BB)->printAsOperand(rso, false);
+            (void)rso.str();
+        }
+        llvm::errs() << "Warning: Instruction has empty name; kept default naming '" << name
+                     << "'. Context basic block operand: " << bbStr << "\n";
+    }
+
     unsigned bitwidth = I.getType()->getPrimitiveSizeInBits();
     if (bitwidth == 0) {
         llvm::errs() << "Warning: Instruction " << name << " has zero bitwidth, using symbUnknown\n";

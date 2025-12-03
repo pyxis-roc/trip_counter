@@ -26,16 +26,10 @@ private:
                         bool outputToStdout,
                         llvm::Value*& resultsArray,
                         llvm::FunctionCallee& printfFunc,
-                        llvm::FunctionCallee& clockGettimeFunc,
-                        llvm::Type*& timespecTy,
-                        llvm::Value*& startTime,
                         llvm::Value*& endTime);
     void emitTiming(llvm::Module* module, llvm::LLVMContext& ctx,
                              llvm::IRBuilder<>& builder,
                              llvm::FunctionCallee& printfFunc,
-                             llvm::FunctionCallee& clockGettimeFunc,
-                             llvm::Type* timespecTy,
-                             llvm::Value* startTime,
                              llvm::Value* endTime);
     void buildTestMain(llvm::Module* module, llvm::LLVMContext& ctx,
                        llvm::Function* kernelFunc,
