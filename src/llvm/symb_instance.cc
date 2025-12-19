@@ -213,14 +213,14 @@ void SymbInstance::emitTiming(llvm::Module* module, llvm::LLVMContext& ctx,
     // Load elapsed cycles from storage
     llvm::Value* elapsedCycles = builder.CreateLoad(int64Ty, endTime, "elapsed_cycles");
     
-    // Convert cycles to nanoseconds using fixed CPU frequency: 1266 MHz = 1.266 GHz
-    // nanoseconds = cycles / GHz = cycles / 1.266
+    // Convert cycles to nanoseconds using lowest CPU frequency: 800 MHz = 0.8 GHz
+    // nanoseconds = cycles / GHz = cycles / 0.8
     llvm::Value* cyclesDouble = builder.CreateUIToFP(elapsedCycles, doubleTy, "cycles_fp");
-    llvm::Value* cpuFreqGHz = llvm::ConstantFP::get(doubleTy, 1.266);
+    llvm::Value* cpuFreqGHz = llvm::ConstantFP::get(doubleTy, 0.8);
     llvm::Value* nanoseconds = builder.CreateFDiv(cyclesDouble, cpuFreqGHz, "nanoseconds");
     
     // Print both cycles and nanoseconds
-    llvm::Value* fmtTime = builder.CreateGlobalString("Kernel execution time: %ld cycles (%.2f ns @ 1.266 GHz)", "fmt_cycles_ns");
+    llvm::Value* fmtTime = builder.CreateGlobalString("Kernel execution time: %ld cycles (%.2f ns @ 0.8 GHz)", "fmt_cycles_ns");
     builder.CreateCall(printfFunc, {fmtTime, elapsedCycles, nanoseconds});
 }
 
