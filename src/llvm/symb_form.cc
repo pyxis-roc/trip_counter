@@ -9,6 +9,7 @@
 #include "llvm/IR/Value.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
+#include <cstdlib>
 #include <llvm/IR/BasicBlock.h>
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include <memory>
@@ -813,7 +814,23 @@ optional<SymbolicExpr> GA::getLoopCount(llvm::Loop* loop){
     }
 
     // SCEV gives backedge count, but we want trip count = backedge count + 1
-    return SCEV2Expr(*backedgeCount) + SEM.one();
+    auto backedgeCountExpr = SCEV2Expr(*backedgeCount);
+    if(backedgeCountExpr.getBitwidth() == 64){
+        // good, default loop count is 64 bits, we can directly use it
+        return backedgeCountExpr + SEM.one64();
+    }
+    else if (backedgeCountExpr.getBitwidth() < 64){
+        // if it is smaller than 64 bits, we can zero extend it to 64 bits
+        return backedgeCountExpr.zeroExtend(64 - backedgeCountExpr.getBitwidth()) + SEM.one64();
+    }
+    else{
+        //print 
+        llvm::errs() << "Error: Loop " << getName(loop) << " backedge count SCEV: ";
+        backedgeCount->print(llvm::errs());
+        llvm::errs() << " is not 64 bits, type incompatible\n";
+        exit(1);
+    }
+    
 }
 
 SymbolicExpr GA::SCEV2Expr(const llvm::SCEV& scev) {
@@ -1069,6 +1086,13 @@ SymbolicExpr GA::inst2Expr(const llvm::Instruction& I) {
             auto expr0 = value2Expr(*op0);
             auto expr1 = value2Expr(*op1);
             return SymbolicExpr::ashr(expr0, expr1);
+        }
+        case llvm::Instruction::Shl:{
+            auto op0 = I.getOperand(0);
+            auto op1 = I.getOperand(1);
+            auto expr0 = value2Expr(*op0);
+            auto expr1 = value2Expr(*op1);
+            return SymbolicExpr::shl(expr0, expr1);
         }
         case llvm::Instruction::Trunc:{
             auto op = I.getOperand(0);
