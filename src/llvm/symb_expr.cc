@@ -3,6 +3,9 @@
 #include "symb_expr.hpp"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/IR/Instruction.h"
+#include "llvm/IR/DataLayout.h"
+#include "llvm/IR/Module.h"
+#include "llvm/IR/Constants.h"
 #include "llvm/Support/raw_ostream.h"
 
 
@@ -348,12 +351,11 @@ SymbolicExpr SymbolicExprManager::bvInst(const llvm::Instruction& I) {
                      << "'. Context basic block operand: " << bbStr << "\n";
     }
 
-    unsigned bitwidth = I.getType()->getPrimitiveSizeInBits();
+    auto bitwidth = getBitWidth(I);
+
     if (bitwidth == 0) {
-        llvm::errs() << "Warning: Instruction " << name << " has zero bitwidth, using symbUnknown\n";
-        SymbolicExpr unknown = symbUnknown(name);
-        instExprCache.emplace(&I, unknown);
-        return unknown;
+        llvm::errs() << "Warning: Instruction " << name << "with type" << I.getType() << " has zero bitwidth, defaulting to 64 bits\n";
+        bitwidth = 64;
     }
     SymbolicExpr expr = bvNamed(name, bitwidth);
     instExprCache.emplace(&I, expr);
@@ -365,13 +367,18 @@ SymbolicExpr SymbolicExprManager::bvValue(const llvm::Value& V) {
     if (it != valueExprCache.end()) {
         return it->second;
     }
-    std::string name = V.getName().str();
-    unsigned bitwidth = V.getType()->getPrimitiveSizeInBits();
+    static int counter = 0;
+    if (V.getName().str().empty()) {
+        llvm::errs() << "Warning: Value has empty name; using default naming 'val_" << counter + 1 << "'. Context: ";
+        V.print(llvm::errs(), false);
+        llvm::errs() << "\n";
+    }
+    std::string name = V.getName().str().empty() ? "val_" + std::to_string(++counter) : V.getName().str();
+    
+    auto bitwidth = getBitWidth(V);
     if (bitwidth == 0) {
-        llvm::errs() << "Warning: Value " << name << " has zero bitwidth, using symbUnknown\n";
-        SymbolicExpr unknown = symbUnknown(name);
-        valueExprCache.emplace(&V, unknown);
-        return unknown;
+        llvm::errs() << "Warning: Value " << name << " has zero bitwidth, defaulting to 64 bits\n";
+        bitwidth = 64;
     }
     SymbolicExpr expr = bvNamed(name, bitwidth);
     valueExprCache.emplace(&V, expr);
@@ -385,10 +392,11 @@ SymbolicExpr SymbolicExprManager::bvSCEV(const llvm::SCEV& scev) {
     }
     static int counter = 0;
     std::string name = "scev_" + std::to_string(++counter);
-    unsigned bitwidth = scev.getType()->getPrimitiveSizeInBits();
+
+    auto bitwidth = getBitWidth(scev);
     if (bitwidth == 0) {
-        llvm::errs() << "Warning: SCEV " << name << " has zero bitwidth, using symbUnknown\n";
-        return symbUnknown(name);
+        llvm::errs() << "Warning: SCEV " << name << " has zero bitwidth, defaulting to 64 bits\n";
+        bitwidth = 64;
     }
     SymbolicExpr expr = bvNamed(name, bitwidth);
     scevExprCache.emplace(&scev, expr);
@@ -434,4 +442,95 @@ std::vector<SymbolicExpr> SymbolicExprManager::getAllProgramExpr() const {
         allExprs.push_back(pair.second);
     }
     return allExprs;
+}
+
+unsigned SymbolicExprManager::getBitWidth(const llvm::Instruction& I) {
+    const llvm::Type* type = I.getType();
+    const llvm::Module* M = I.getModule();
+    const llvm::DataLayout* DL = M ? &M->getDataLayout() : nullptr;
+
+    if (DL){
+        return DL->getTypeSizeInBits(const_cast<llvm::Type*>(type));
+    }
+    else{
+        llvm::errs() << "Warning: getBitWidth(Instruction): Instruction without Module/DataLayout, defaulting to 64 bits\n";
+        return 64;
+    }
+
+    return 0;
+}
+
+unsigned SymbolicExprManager::getBitWidth(const llvm::Value& V) {
+    const llvm::Type* type = V.getType();
+
+    // Handle null pointer values
+    if (llvm::isa<llvm::ConstantPointerNull>(&V)) {
+        // Null pointer has the bitwidth of a pointer
+        const llvm::Module* M = nullptr;
+        
+        // Try to find module context from other sources
+        if (auto* I = llvm::dyn_cast<llvm::Instruction>(&V)) {
+            M = I->getModule();
+        }
+        
+        if (M) {
+            return M->getDataLayout().getPointerSizeInBits();
+        }
+        llvm::errs() << "Warning: getBitWidth(Value): null pointer without Module context, defaulting to 64 bits\n";
+        return 64;
+    }
+
+    const llvm::Module* M = nullptr;
+    if (auto* I = llvm::dyn_cast<llvm::Instruction>(&V)) {
+        M = I->getModule();
+    } else if (auto* arg = llvm::dyn_cast<llvm::Argument>(&V)) {
+        if (auto* func = arg->getParent()) {
+            M = func->getParent();
+        }
+    } else if (auto* gv = llvm::dyn_cast<llvm::GlobalValue>(&V)) {
+        M = gv->getParent();
+    }
+    
+    const llvm::DataLayout* DL = M ? &M->getDataLayout() : nullptr;
+
+    if (type->isPointerTy()) {
+        if (DL) {
+            return DL->getPointerSizeInBits();
+        }
+        llvm::errs() << "Warning: getBitWidth(Value): pointer type without Module/DataLayout, defaulting to 64 bits\n";
+        return 64;
+    }
+
+    if (type->isArrayTy()) {
+        if (type->isSized()) {
+            if (DL) {
+                return DL->getTypeSizeInBits(const_cast<llvm::Type*>(type));
+            }
+
+            // Fallback without DataLayout: derive by element width when possible.
+            const llvm::Type* elemType = type->getArrayElementType();
+            unsigned elemBits = elemType->getPrimitiveSizeInBits();
+            if (elemBits > 0) {
+                return elemBits * type->getArrayNumElements();
+            }
+        }
+
+        llvm::errs() << "Warning: getBitWidth(Value): array type without computable size or Module/DataLayout, defaulting to 64 bits\n";
+        return 64;
+    }
+
+    unsigned primitiveBits = type->getPrimitiveSizeInBits();
+    if (primitiveBits > 0) {
+        return primitiveBits;
+    }
+
+    if (type->isSized() && DL) {
+        return DL->getTypeSizeInBits(const_cast<llvm::Type*>(type));
+    }
+
+    return 0;
+}
+
+unsigned SymbolicExprManager::getBitWidth(const llvm::SCEV& scev) {
+    return scev.getType()->getPrimitiveSizeInBits();
 }

@@ -175,6 +175,27 @@ llvm::BasicBlock* GraphBuilder::nextGraphHead(GraphType type, llvm::BasicBlock* 
             auto trueSide = startBB->getTerminator()->getSuccessor(0);
             auto falseSide = startBB->getTerminator()->getSuccessor(1);
             
+            // Check if either side is unreachable
+            bool trueSideUnreachable = !trueSide->empty() && 
+                                        llvm::isa<llvm::UnreachableInst>(trueSide->getTerminator());
+            bool falseSideUnreachable = !falseSide->empty() && 
+                                         llvm::isa<llvm::UnreachableInst>(falseSide->getTerminator());
+            
+            if (trueSideUnreachable && falseSideUnreachable) {
+                llvm::errs() << "Warning: GraphBuilder::nextGraphHead: Both sides are unreachable\n";
+                return nullptr;
+            }
+            
+            if (trueSideUnreachable) {
+                llvm::errs() << "Info: GraphBuilder::nextGraphHead: True side is unreachable, taking false side\n";
+                return falseSide;
+            }
+            
+            if (falseSideUnreachable) {
+                llvm::errs() << "Info: GraphBuilder::nextGraphHead: False side is unreachable, taking true side\n";
+                return trueSide;
+            }
+            
             auto postDomTrue = PDT.getNode(trueSide);
             auto postDomFalse = PDT.getNode(falseSide);
             
@@ -185,7 +206,10 @@ llvm::BasicBlock* GraphBuilder::nextGraphHead(GraphType type, llvm::BasicBlock* 
             
             auto commonPostDom = PDT.findNearestCommonDominator(trueSide, falseSide);
             if (!commonPostDom) {
-                llvm::errs() << "Error: GraphBuilder::nextGraphHead: No common post dominator found\n";
+                llvm::errs() << "Error: GraphBuilder::nextGraphHead: No common post dominator found.\n";
+                // If no common post dominator is found, it likely means one side is unreachable. We can choose the other side as the next head.
+                
+
                 return nullptr;
             }
             
@@ -948,6 +972,11 @@ SymbolicExpr GA::inst2Expr(const llvm::Instruction& I) {
 
     auto & ctx_ = SEM.context();
 
+    // debug print the instruction being converted
+    // llvm::errs() << "DEBUG: Converting instruction to expression: ";
+    // I.print(llvm::errs());
+    // llvm::errs() << "\n";
+
     switch (I.getOpcode()) {
 
         // PHI node: weighted average based on incoming edge factors
@@ -960,6 +989,12 @@ SymbolicExpr GA::inst2Expr(const llvm::Instruction& I) {
                 auto incomingBB = phi->getIncomingBlock(i);
                 auto currentBB = const_cast<llvm::BasicBlock*>(phi->getParent());
                 auto incomingVal = phi->getIncomingValue(i);
+
+                // debug info of incombingBB currentBB
+                // llvm::errs() << "Debug: printExpandedPHI processing incoming edge from "
+                //         << GraphBuilder::getName(incomingBB) << " to "
+                //         << GraphBuilder::getName(currentBB) << "\n";
+
 
                 if (auto baseFactor = getFactor(incomingBB, currentBB)) {
                     if(isSolvableExitValue(incomingVal, incomingBB, currentBB)){
@@ -1042,6 +1077,16 @@ SymbolicExpr GA::inst2Expr(const llvm::Instruction& I) {
             auto op1 = I.getOperand(1);
             auto expr0 = value2Expr(*op0);
             auto expr1 = value2Expr(*op1);
+
+            // llvm::errs() << "Debug: ICmp instruction: ";
+            // I.print(llvm::errs());
+            // llvm::errs() << "\n";
+            // llvm::errs() << "Debug: Operand 0 expression: " << expr0.getBitwidth() << " ";
+            // op0->print(llvm::errs(), false);
+            // llvm::errs() << "\n";
+            // llvm::errs() << "Debug: Operand 1 expression: " << expr1.getBitwidth() << " ";
+            // op1->print(llvm::errs(), false);
+            // llvm::errs() << "\n";
             
             auto cmpInst = llvm::cast<llvm::ICmpInst>(&I);
             switch (cmpInst->getPredicate()) {
@@ -1122,7 +1167,7 @@ SymbolicExpr GA::value2Expr(const llvm::Value& V) {
     // llvm::errs() << "\n";
 
     // constants
-    unsigned bitwidth = V.getType()->getPrimitiveSizeInBits();
+    unsigned bitwidth = SEM.getBitWidth(V);
     if (auto* constant = llvm::dyn_cast<llvm::ConstantInt>(&V)) {
         return SEM.bvVal(constant->getValue().getSExtValue(), bitwidth);
     }
@@ -1141,8 +1186,10 @@ SymbolicExpr GA::value2Expr(const llvm::Value& V) {
         }
         llvm::errs() << "Warning: value2Expr unsolvable: " << V.getName() << "\n";
     }
-    llvm::errs() << "Warning: value2Expr Unsupported value type: " << V.getType()->getTypeID() << "\n";
-    return SEM.bvValue(V); 
+    llvm::errs() << "Warning: value2Expr Unsupported value type: " << V.getType()->getTypeID() << " for value: ";
+    V.printAsOperand(llvm::errs(), false);
+    llvm::errs() << "\n";
+    return SEM.bvValue(V);
 }
 
 // expand the symbolic count to an expression that only uses program inputs

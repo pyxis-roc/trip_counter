@@ -279,7 +279,7 @@ void ControlVar::erase(std::set<llvm::Instruction*> all, std::set<llvm::Instruct
     }
     for(auto* R: eraseReturn){
         auto newR = dummyReturn(R->getParent()->getParent());
-        newR->insertBefore(R);
+        newR->insertBefore(R->getIterator());
         erase(R);
     }
 }

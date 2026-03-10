@@ -84,8 +84,8 @@ llvm::Function* createReport(llvm::Function& F, std::map<llvm::BasicBlock*, llvm
         llvm::Value *val = new llvm::LoadInst(llvm::Type::getInt64Ty(F.getContext()), var, "bb.count", entry);
         builder.CreateCall(printUtil, 
             {
-            builder.CreateGlobalStringPtr(bbIDs[bb]),
-            builder.CreateGlobalStringPtr(bb->getName()),
+            builder.CreateGlobalString(bbIDs[bb]),
+            builder.CreateGlobalString(bb->getName()),
             val});
     }
 
@@ -144,7 +144,7 @@ void CountBasicBlocks::buildProxy(llvm::Function &F, std::set<LoopSummary*> SL, 
 void CountBasicBlocks::instrumentBlock(llvm::BasicBlock* B, llvm::GlobalVariable* counter, llvm::Value* increment){
 
     //insert the increment instruction at the end of the basic block
-    auto InsertPos = B->getTerminator(); 
+    auto InsertPos = B->getTerminator()->getIterator(); 
     llvm::Value *OldVal = new llvm::LoadInst(llvm::Type::getInt64Ty(B->getContext()), counter, "old.bb.count", InsertPos);
     llvm::Value *NewVal = llvm::BinaryOperator::Create(
                 llvm::Instruction::Add
@@ -162,7 +162,7 @@ void CountBasicBlocks::instrumentNormalBlock(llvm::BasicBlock* B, llvm::GlobalVa
 
 llvm::Value* materializeSCEV(llvm::BasicBlock* B, llvm::ScalarEvolution &SE, const llvm::SCEV* scev){
     llvm::IRBuilder<> builder(B->getContext());
-    llvm::SCEVExpander expander(SE,  B->getModule()->getDataLayout(), "scev");
+    llvm::SCEVExpander expander(SE, "scev");
 
     auto val = expander.expandCodeFor(scev, scev->getType(), B->begin());
     return val;
@@ -176,7 +176,7 @@ void CountBasicBlocks::instrumentSummarizedBlock(llvm::BasicBlock* B, llvm::Glob
         instrumentBlock(B, counter, bcount);
     }
     else if (bcount->getType() == llvm::Type::getInt32Ty(B->getContext())){
-        auto sext = new llvm::SExtInst(bcount, llvm::Type::getInt64Ty(B->getContext()), "sext", B->getTerminator());
+        auto sext = new llvm::SExtInst(bcount, llvm::Type::getInt64Ty(B->getContext()), "sext", B->getTerminator()->getIterator());
         instrumentBlock(B, counter, sext);
     }
     else{

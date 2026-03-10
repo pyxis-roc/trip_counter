@@ -127,7 +127,12 @@ public:
     std::vector<SymbolicExpr> getAllProgramExpr() const;
 
     void substitude(const std::vector<SymbolicExpr>& inputs, const std::vector<int>& inputValues);
+    
+    unsigned getBitWidth(const llvm::Instruction& I);
+    unsigned getBitWidth(const llvm::Value& V);
+    unsigned getBitWidth(const llvm::SCEV& scev);
 
-private:
+    private:
     z3::context ctx_;
+
 };

@@ -173,7 +173,7 @@ void SymbInstance::emitKernelBody(llvm::Module* module, llvm::LLVMContext& ctx,
             llvm::Value* elementPtrStore = builder.CreateInBoundsGEP(arrayType, resultsArray, indicesStore);
             builder.CreateStore(localResults[i], elementPtrStore);
         }
-        llvm::Type* filePtrTy = llvm::PointerType::get(llvm::Type::getInt8Ty(ctx), 0);
+        llvm::Type* filePtrTy = llvm::PointerType::get(ctx, 0);
         llvm::FunctionType* fopenType = llvm::FunctionType::get(filePtrTy, {voidPtrTy, voidPtrTy}, false);
         llvm::FunctionCallee fopenFunc = module->getOrInsertFunction("fopen", fopenType);
         // int fprintf(FILE*, const char*, ...)
@@ -232,7 +232,7 @@ void SymbInstance::buildTestMain(llvm::Module* module, llvm::LLVMContext& ctx,
     llvm::Type* voidPtrTy = llvm::PointerType::get(ctx, 0);
     llvm::FunctionType* mainType = llvm::FunctionType::get(
         llvm::Type::getInt32Ty(ctx),
-        {llvm::Type::getInt32Ty(ctx), llvm::PointerType::get(llvm::PointerType::get(llvm::Type::getInt8Ty(ctx), 0), 0)},
+        {llvm::Type::getInt32Ty(ctx), llvm::PointerType::get(ctx, 0)},
         false);
     llvm::Function* mainFunc = llvm::Function::Create(mainType, llvm::Function::ExternalLinkage, "main", module);
     auto it = mainFunc->arg_begin();
@@ -248,7 +248,7 @@ void SymbInstance::buildTestMain(llvm::Module* module, llvm::LLVMContext& ctx,
     
     for (size_t i = 0; i < inputs.size(); ++i) {
         llvm::Value* idx = llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), (uint64_t)(i + 1));
-        llvm::Type* i8ptrTy = llvm::PointerType::get(llvm::Type::getInt8Ty(ctx), 0);
+        llvm::Type* i8ptrTy = llvm::PointerType::get(ctx, 0);
         llvm::Value* one64 = llvm::ConstantInt::get(int64Ty, 1);
         llvm::Value* i32const = llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), (uint64_t)i);
         llvm::Value* cond = mBuilder.CreateICmpSGT(provided, i32const);
@@ -720,7 +720,7 @@ llvm::Value* SymbInstance::createValueFromZ3Expr(llvm::LLVMContext& ctx, llvm::I
                 return cacheAndReturn(builder.CreateOr(shl, shr, "rotltmp"));
             } else {
                 // Fixed rotation amount from decl parameter
-                rotateAmount = expr.decl().num_parameters() > 0 ? 
+                rotateAmount = Z3_get_decl_num_parameters(expr.ctx(), expr.decl()) > 0 ? 
                     Z3_get_decl_int_parameter(expr.ctx(), expr.decl(), 0) : 0;
                 llvm::Value* shl = builder.CreateShl(llvmOps[0], llvm::ConstantInt::get(intTy, rotateAmount));
                 llvm::Value* shr = builder.CreateLShr(llvmOps[0], llvm::ConstantInt::get(intTy, bitWidth - rotateAmount));
@@ -738,7 +738,7 @@ llvm::Value* SymbInstance::createValueFromZ3Expr(llvm::LLVMContext& ctx, llvm::I
                 return cacheAndReturn(builder.CreateOr(shr, shl, "rotrtmp"));
             } else {
                 // Fixed rotation amount from decl parameter
-                rotateAmount = expr.decl().num_parameters() > 0 ? 
+                rotateAmount = Z3_get_decl_num_parameters(expr.ctx(), expr.decl()) > 0 ? 
                     Z3_get_decl_int_parameter(expr.ctx(), expr.decl(), 0) : 0;
                 llvm::Value* shr = builder.CreateLShr(
                     llvmOps[0], 
@@ -808,7 +808,7 @@ llvm::Value* SymbInstance::createValueFromZ3Expr(llvm::LLVMContext& ctx, llvm::I
         
         // Bit-vector repeat operation
         case Z3_OP_REPEAT: {
-            unsigned repeatCount = expr.decl().num_parameters() > 0 ? 
+            unsigned repeatCount = Z3_get_decl_num_parameters(expr.ctx(), expr.decl()) > 0 ? 
                 Z3_get_decl_int_parameter(expr.ctx(), expr.decl(), 0) : 1;
             llvm::Value* result = llvmOps[0];
             unsigned srcWidth = llvmOps[0]->getType()->getIntegerBitWidth();

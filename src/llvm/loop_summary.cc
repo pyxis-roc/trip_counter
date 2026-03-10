@@ -127,7 +127,7 @@ llvm::Loop* LoopSummary::trySummarize(){
     auto latch = L.getLoopLatch();
 
     // remove backedge from latches, create a acyclic control 
-    llvm::BranchInst::Create(exit, latch->getTerminator());
+    llvm::BranchInst::Create(exit, latch->getTerminator()->getIterator());
     latch->getTerminator()->eraseFromParent();
 
     // remove invalid phi nodes caused by the removed backedge
