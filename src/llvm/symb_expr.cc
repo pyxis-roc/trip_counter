@@ -233,31 +233,38 @@ z3::context& SymbolicExprManager::context() {
 
 // Static API for constants
 SymbolicExpr SymbolicExprManager::zero() {
+    totalExprCount++;
     return zero64();
 }
 
 SymbolicExpr SymbolicExprManager::zero32() {
+    totalExprCount++;
     return SymbolicExpr(ctx_, ctx_.bv_val(0, 32));
 }
 
 SymbolicExpr SymbolicExprManager::zero64() {
+    totalExprCount++;
     return SymbolicExpr(ctx_, ctx_.bv_val(0, 64));
 }
 
 SymbolicExpr SymbolicExprManager::one() {
+    totalExprCount++;
     return one64();
 }
 
 SymbolicExpr SymbolicExprManager::one32() {
+    totalExprCount++;
     return SymbolicExpr(ctx_, ctx_.bv_val(1, 32));
 }
 
 SymbolicExpr SymbolicExprManager::one64() {
+    totalExprCount++;
     return SymbolicExpr(ctx_, ctx_.bv_val(1, 64));
 }
 
 // Static API for named symbol
 SymbolicExpr SymbolicExprManager::named(const std::string& name) {
+    totalExprCount++;
     return named64(name);
 }
 
@@ -268,6 +275,7 @@ SymbolicExpr SymbolicExprManager::named32(const std::string& name) {
     }
     auto expr = SymbolicExpr(ctx_, ctx_.bv_const(name.c_str(), 32));
     rawExprCache.emplace(name, expr);
+    totalExprCount++;
     return expr;
 }
 

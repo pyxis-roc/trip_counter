@@ -1155,11 +1155,14 @@ SymbolicExpr GA::inst2Expr(const llvm::Instruction& I) {
             }
         }
         default:
-            llvm::errs() << "Warning: inst2Expr Unsupported instruction " << I.getOpcodeName() ;
+            llvm::errs() << "Warning: inst2Expr Unsupported instruction, assumed to return 1 " << I.getOpcodeName() ;
             I.print(llvm::errs());
             llvm::errs() << "\n";
+            auto bitwidth = SEM.getBitWidth(I);
+            return SEM.bvVal(1, bitwidth);
+
     }
-    return SEM.bvInst(I);
+    // return SEM.bvInst(I);
 }
 
 SymbolicExpr GA::value2Expr(const llvm::Value& V) {
@@ -1177,6 +1180,9 @@ SymbolicExpr GA::value2Expr(const llvm::Value& V) {
     }
     if (llvm::isa<llvm::Argument>(&V)) {
         return SEM.bvValue(V);
+    }
+    if (llvm::isa<llvm::ConstantPointerNull>(&V)) {
+        return SEM.bvVal(0, bitwidth);
     }
     
     // expanded variable

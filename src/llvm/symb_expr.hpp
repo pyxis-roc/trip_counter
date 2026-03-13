@@ -86,6 +86,8 @@ public:
 
     z3::context& context();
 
+    int totalExprCount = 0;
+
     // Static API for constants
     SymbolicExpr zero();
     SymbolicExpr zero32();
@@ -126,7 +128,7 @@ public:
 
     std::vector<SymbolicExpr> getAllProgramExpr() const;
 
-    void substitude(const std::vector<SymbolicExpr>& inputs, const std::vector<int>& inputValues);
+    void substitute(const std::vector<SymbolicExpr>& inputs, const std::vector<int>& inputValues);
     
     unsigned getBitWidth(const llvm::Instruction& I);
     unsigned getBitWidth(const llvm::Value& V);
