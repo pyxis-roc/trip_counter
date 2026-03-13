@@ -23,10 +23,19 @@ a function that takes two integers as input and returns their sum f(x, y) = x + 
 #include <vector>
 #include <set>
 
+namespace {
+bool isTrueRatioDenName(const std::string& name) {
+    return name.rfind("TR_den_", 0) == 0;
+}
+}
+
 // Helper to collect uninterpreted symbols
 void collectSymbols(const z3::expr& e, std::set<std::string>& symbols) {
     if (e.is_const() && e.decl().decl_kind() == Z3_OP_UNINTERPRETED) {
-        symbols.insert(e.decl().name().str());
+        auto name = e.decl().name().str();
+        if (!isTrueRatioDenName(name)) {
+            symbols.insert(name);
+        }
     }
     for (unsigned i = 0; i < e.num_args(); ++i) {
         collectSymbols(e.arg(i), symbols);
@@ -300,10 +309,7 @@ namespace {
             return true;
         }
         for (unsigned i = 0; i < e.num_args(); ++i) {
-            Z3_decl_kind arg_k = e.arg(i).decl().decl_kind();
-            if (arg_k == Z3_OP_BSDIV || arg_k == Z3_OP_BSDIV_I ||
-                arg_k == Z3_OP_BUDIV || arg_k == Z3_OP_BUDIV_I ||
-                arg_k == Z3_OP_BSREM || arg_k == Z3_OP_BUREM) {
+            if (needsLazyEvaluation(e.arg(i))) {
                 return true;
             }
         }
@@ -494,7 +500,7 @@ llvm::Value* SymbInstance::createValueFromZ3Expr(llvm::LLVMContext& ctx, llvm::I
         case Z3_OP_BNOT:
             return cacheAndReturn(builder.CreateXor(
                 llvmOps[0],
-                llvm::ConstantInt::get(llvmOps[0]->getType(), 1), 
+                llvm::ConstantInt::getAllOnesValue(llvmOps[0]->getType()), 
                 "bnottmp")
             );
         case Z3_OP_NOT:
@@ -681,6 +687,10 @@ llvm::Value* SymbInstance::createValueFromZ3Expr(llvm::LLVMContext& ctx, llvm::I
                     }
                 }
                 return cacheAndReturn(var);
+            }
+            if (isTrueRatioDenName(name)) {
+                llvm::Value* one = llvm::ConstantInt::get(intTy, 1);
+                return cacheAndReturn(one);
             }
             (void)name;
             return cacheAndReturn(llvm::ConstantInt::get(int64Ty, 0));

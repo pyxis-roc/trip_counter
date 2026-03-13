@@ -6,12 +6,14 @@
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Value.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstdlib>
 #include <llvm/IR/BasicBlock.h>
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
+#include <llvm/IR/InstrTypes.h>
 #include <memory>
 #include <optional>
 #include <string>
@@ -354,22 +356,27 @@ shared_ptr<Branch> GraphBuilder::createBranch(std::shared_ptr<BasicGraph> BG,
         return std::static_pointer_cast<Branch>(twin);
     }
 
-    auto trueRatio_literal = "TR_" + getName(startBB);
-    auto trueRatio = SEM.symbTrueRatio(trueRatio_literal);
-    auto falseRatio = SEM.one() - trueRatio;
+    // TrueRatio is represented as a fraction (trueRatioNum / trueRatioDen)
+    // to avoid bitvector integer division truncation.
+    auto trNum_literal = "TR_num_" + getName(startBB);
+    auto trDen_literal = "TR_den_" + getName(startBB);
+    auto trueRatioNum = SEM.symbTrueRatio(trNum_literal);
+    auto trueRatioDen = SEM.symbTrueRatio(trDen_literal);
+    auto falseRatioNum = trueRatioDen - trueRatioNum;
+    auto falseRatioDen = trueRatioDen;
 
     auto incoming_count = BG->count;
     auto trueSide = startBB->getTerminator()->getSuccessor(0);
     auto falseSide = startBB->getTerminator()->getSuccessor(1);
-    auto G1 = createGraph(trueRatio * incoming_count, trueSide, endBB);
-    auto G2 = createGraph(falseRatio * incoming_count, falseSide, endBB);
+    auto G1 = createGraph((trueRatioNum * incoming_count) / trueRatioDen, trueSide, endBB);
+    auto G2 = createGraph((falseRatioNum * incoming_count) / falseRatioDen, falseSide, endBB);
 
     auto graph = make_shared<Branch>(
         Branch(
-            BG, 
-            trueRatio, 
-            falseRatio, 
-            G1, 
+            BG,
+            trueRatioNum, trueRatioDen,
+            falseRatioNum, falseRatioDen,
+            G1,
             G2
         )
     );
@@ -564,10 +571,14 @@ void GraphBuilder::substitute(shared_ptr<BasicGraph> BG, const vector<SymbolicEx
             break;
         case GraphType::Branch: {
             auto branch = std::static_pointer_cast<Branch>(BG);
-            branch->trueRatio.substitute(originals, withs);
-            branch->falseRatio.substitute(originals, withs);
-            branch->trueRatio.simplify();
-            branch->falseRatio.simplify();
+            branch->trueRatioNum.substitute(originals, withs);
+            branch->trueRatioDen.substitute(originals, withs);
+            branch->falseRatioNum.substitute(originals, withs);
+            branch->falseRatioDen.substitute(originals, withs);
+            branch->trueRatioNum.simplify();
+            branch->trueRatioDen.simplify();
+            branch->falseRatioNum.simplify();
+            branch->falseRatioDen.simplify();
             substitute(branch->G1, originals, withs);
             substitute(branch->G2, originals, withs);
             break;
@@ -609,10 +620,14 @@ void GraphBuilder::substitute(shared_ptr<BasicGraph> BG, const vector<SymbolicEx
             break;
         case GraphType::Branch: {
             auto branch = std::static_pointer_cast<Branch>(BG);
-            branch->trueRatio.substitute(originals, withs);
-            branch->falseRatio.substitute(originals, withs);
-            branch->trueRatio.simplify();
-            branch->falseRatio.simplify();
+            branch->trueRatioNum.substitute(originals, withs);
+            branch->trueRatioDen.substitute(originals, withs);
+            branch->falseRatioNum.substitute(originals, withs);
+            branch->falseRatioDen.substitute(originals, withs);
+            branch->trueRatioNum.simplify();
+            branch->trueRatioDen.simplify();
+            branch->falseRatioNum.simplify();
+            branch->falseRatioDen.simplify();
             substitute(branch->G1, originals, withs);
             substitute(branch->G2, originals, withs);
             break;
@@ -686,12 +701,14 @@ vector<shared_ptr<BasicGraph>> GA::traverse(shared_ptr<BasicGraph> BG){
             auto branch = std::static_pointer_cast<Branch>(BG);
             //connect head to true and false branches
             if (branch->G1) {
-                addFactor(graph2bb[BG], graph2bb[branch->G1->BG], branch->trueRatio * branch->count);
+                addFactor(graph2bb[BG], graph2bb[branch->G1->BG],
+                          (branch->trueRatioNum * branch->count) / branch->trueRatioDen);
                 auto lastBR1 = traverse(branch->G1);
                 last.insert(last.end(), lastBR1.begin(), lastBR1.end());
             }
             if (branch->G2){
-                addFactor(graph2bb[BG], graph2bb[branch->G2->BG], branch->falseRatio * branch->count);
+                addFactor(graph2bb[BG], graph2bb[branch->G2->BG],
+                          (branch->falseRatioNum * branch->count) / branch->falseRatioDen);
                 auto lastBR2 = traverse(branch->G2);
                 last.insert(last.end(), lastBR2.begin(), lastBR2.end());
             }
@@ -738,7 +755,9 @@ void GA::refine(shared_ptr<BasicGraph> BG){
             refine(branch->G1);
             refine(branch->G2);
             if(auto TRexpanded = getTrueRatio(graph2bb[branch])){
-                update(branch, make_pair(branch->trueRatio, TRexpanded.value()));
+                auto [trNum, trDen] = TRexpanded.value();
+                update(branch, make_pair(branch->trueRatioNum, trNum));
+                update(branch, make_pair(branch->trueRatioDen, trDen));
             }
             break;
         }
@@ -778,8 +797,10 @@ void GA::update(shared_ptr<BasicGraph> BG, pair<SymbolicExpr, SymbolicExpr> subs
             break;
         case GraphType::Branch: {
             auto branch = std::static_pointer_cast<Branch>(BG);
-            branch->trueRatio.substitute(original, updated);
-            branch->falseRatio.substitute(original, updated);
+            branch->trueRatioNum.substitute(original, updated);
+            branch->trueRatioDen.substitute(original, updated);
+            branch->falseRatioNum.substitute(original, updated);
+            branch->falseRatioDen.substitute(original, updated);
             update(branch->G1, subs);
             update(branch->G2, subs);
             break;
@@ -797,7 +818,363 @@ void GA::update(shared_ptr<BasicGraph> BG, pair<SymbolicExpr, SymbolicExpr> subs
     }
 }
 
-optional<SymbolicExpr> GA::getTrueRatio(const llvm::BasicBlock* bb){
+// ============================================================
+// Affine Condition Analysis for getTrueRatio
+// See affine-conditions-solving.txt for the mathematical detail.
+// All symbolic range arithmetic uses 64-bit signed bitvectors.
+// ============================================================
+namespace {
+
+// A range: range(s, e, anchor, step, D) =
+// { n ∈ ℤ | s ≤ n ≤ e, n ≡ anchor (mod step), n ∉ D }
+struct AffineRange {
+    SymbolicExpr s;                  // start (inclusive)
+    SymbolicExpr e;                  // end   (inclusive)
+    SymbolicExpr anchor;             // congruence anchor of the arithmetic progression
+    uint64_t step;                   // constant positive stride
+    std::vector<SymbolicExpr> D;     // deleted points
+    AffineRange(SymbolicExpr s, SymbolicExpr e,
+        SymbolicExpr anchor, uint64_t step,
+        std::vector<SymbolicExpr> D = {})
+    : s(std::move(s)), e(std::move(e)),
+      anchor(std::move(anchor)), step(step), D(std::move(D)) {}
+};
+
+// Relational operator (from the grammar in affine-conditions-solving.txt)
+enum class RangeOp { LT, LE, GT, GE, EQ, NE};
+
+// A single range condition: iv <rop> v  (iv always on the left after normalisation)
+struct RangeCondition {
+    RangeOp      op;
+    SymbolicExpr v;   // the loop-invariant right-hand side, 64-bit
+};
+
+using Term           = std::vector<RangeCondition>; // conjunction of RCs
+using AffineCondition = std::vector<Term>;          // disjunction (DNF)
+
+// Signed minimum via select: min(a,b) = a ≤ b ? a : b
+static SymbolicExpr smin(const SymbolicExpr& a, const SymbolicExpr& b) {
+    return SymbolicExpr::select(SymbolicExpr::sle(a, b), a, b);
+}
+
+// Check if a Value is loop-invariant (lives outside the loop body)
+static bool isLI(const llvm::Value* v, llvm::Loop* loop) {
+    if (!v || !loop) return false;
+    if (llvm::isa<llvm::Constant>(v)) return true;
+    if (llvm::isa<llvm::Argument>(v)) return true;
+    if (auto* I = llvm::dyn_cast<llvm::Instruction>(v))
+        return !loop->contains(I->getParent());
+    return false;
+}
+
+// Find the principal induction variable of a loop:
+// prefer LLVM's canonical IV; fall back to the first affine AddRec PHI.
+static const llvm::PHINode* findLoopIV(llvm::Loop* loop,
+                                       llvm::ScalarEvolution& SE) {
+    if (auto* iv = loop->getInductionVariable(SE))
+        return iv;
+    auto* hdr = loop->getHeader();
+    if (!hdr) return nullptr;
+    for (auto& inst : *hdr) {
+        if (auto* phi = llvm::dyn_cast<llvm::PHINode>(&inst)) {
+            if (auto* ar = llvm::dyn_cast<llvm::SCEVAddRecExpr>(SE.getSCEV(phi)))
+                if (ar->getLoop() == loop && ar->isAffine())
+                    return phi;
+        }
+    }
+    return nullptr;
+}
+
+static SymbolicExpr stepExpr(uint64_t step, SymbolicExprManager& SEM) {
+    return SEM.bvVal(step, 64);
+}
+
+// Smallest point of the progression anchor + k*step that is >= lower.
+static SymbolicExpr alignLower(const SymbolicExpr& lower,
+                               const SymbolicExpr& anchor,
+                               uint64_t step,
+                               SymbolicExprManager& SEM) {
+    auto stepBV = stepExpr(step, SEM);
+    auto one = SEM.bvVal(1, 64);
+    auto delta = lower - anchor;
+    auto ceilQ = (delta + stepBV - one) / stepBV;
+    auto aligned = anchor + ceilQ * stepBV;
+    return SymbolicExpr::select(SymbolicExpr::sle(lower, anchor), anchor, aligned);
+}
+
+// Largest point of the progression anchor + k*step that is <= upper.
+// If upper is below the first progression point, return anchor-step so that
+// callers can detect emptiness by checking start > end.
+static SymbolicExpr alignUpper(const SymbolicExpr& upper,
+                               const SymbolicExpr& anchor,
+                               uint64_t step,
+                               SymbolicExprManager& SEM) {
+    auto stepBV = stepExpr(step, SEM);
+    auto delta = upper - anchor;
+    auto floorQ = delta / stepBV;
+    auto aligned = anchor + floorQ * stepBV;
+    return SymbolicExpr::select(SymbolicExpr::sle(anchor, upper), aligned, anchor - stepBV);
+}
+
+static SymbolicExpr isAlignedToRange(const SymbolicExpr& value,
+                                     const AffineRange& R,
+                                     SymbolicExprManager& SEM) {
+    auto zero = SEM.bvVal(0, 64);
+    auto stepBV = stepExpr(R.step, SEM);
+    return SymbolicExpr::eq((value - R.anchor) % stepBV, zero);
+}
+
+// Apply one transfer function F_{iv op v}(R) → refined range
+static AffineRange applyRC(const AffineRange& R,
+                           const RangeCondition& rc,
+                           SymbolicExprManager& SEM) {
+    auto one = SEM.bvVal(1, 64);
+    switch (rc.op) {
+        case RangeOp::LE:
+            return AffineRange(R.s, smin(R.e, rc.v), R.anchor, R.step, R.D);
+        case RangeOp::LT:
+            return AffineRange(R.s, smin(R.e, rc.v - one), R.anchor, R.step, R.D);
+        case RangeOp::GE:
+            return AffineRange(SymbolicExpr::smax(R.s, rc.v), R.e, R.anchor, R.step, R.D);
+        case RangeOp::GT:
+            return AffineRange(SymbolicExpr::smax(R.s, rc.v + one), R.e, R.anchor, R.step, R.D);
+        case RangeOp::NE: {
+            auto D2 = R.D;
+            D2.push_back(rc.v);
+            return AffineRange(R.s, R.e, R.anchor, R.step, std::move(D2));
+        }
+        case RangeOp::EQ:
+            // F_{iv==v}(R) = range(max(s,v), min(e,v), D)
+            // equals range(v,v,D) when v∈[s,e]; s>e (empty) otherwise
+            return AffineRange(SymbolicExpr::smax(R.s, rc.v),
+                               smin(R.e, rc.v), R.anchor, R.step, R.D);
+    }
+    return R;
+}
+
+// Apply a full conjunctive term T by composing transfer functions
+static AffineRange applyTerm(const AffineRange& R0,
+                             const Term& term,
+                             SymbolicExprManager& SEM) {
+    AffineRange R = R0;
+    for (const auto& rc : term)
+        R = applyRC(R, rc, SEM);
+    return R;
+}
+
+// len(range(s,e,anchor,step,D)) =
+// max(0, floor((alignedEnd-alignedStart)/step)+1) minus deleted aligned points.
+static SymbolicExpr computeLen(const AffineRange& R,
+                               SymbolicExprManager& SEM) {
+    auto zero = SEM.bvVal(0, 64);
+    auto one  = SEM.bvVal(1, 64);
+    auto stepBV = stepExpr(R.step, SEM);
+    auto alignedStart = alignLower(R.s, R.anchor, R.step, SEM);
+    auto alignedEnd = alignUpper(R.e, R.anchor, R.step, SEM);
+    // base length: ((alignedEnd-alignedStart)/step)+1 when alignedStart≤alignedEnd, else 0
+    auto base = SymbolicExpr::select(
+        SymbolicExpr::sle(alignedStart, alignedEnd),
+        ((alignedEnd - alignedStart) / stepBV) + one,
+        zero);
+    // subtract deleted points that lie within [alignedStart, alignedEnd]
+    // and are on the same arithmetic progression.
+    auto del = zero;
+    for (const auto& d : R.D) {
+        auto inRange = SymbolicExpr::sle(alignedStart, d) & SymbolicExpr::sle(d, alignedEnd);
+        auto aligned = isAlignedToRange(d, R, SEM);
+        del = del + SymbolicExpr::select(inRange & aligned, one, zero);
+    }
+    return base - del;
+}
+
+// Ω(I_i, I_j) = range(max(s_i,s_j), min(e_i,e_j), D_i ∩ D_j)
+// D intersection is left empty (conservative; avoids over-counting overlaps)
+static AffineRange computeOverlap(const AffineRange& a,
+                                  const AffineRange& b,
+                                  SymbolicExprManager& SEM) {
+    return AffineRange(SymbolicExpr::smax(a.s, b.s),
+                       smin(a.e, b.e),
+                       a.anchor,
+                       a.step);
+}
+
+} // anonymous namespace
+// ============================================================
+
+optional<pair<SymbolicExpr, SymbolicExpr>> GA::tryAffineTrueRatio(const llvm::BasicBlock* bb) {
+    if (!bb) return std::nullopt;
+
+    // Only makes sense for a block inside a loop
+    auto* loop = LI.getLoopFor(const_cast<llvm::BasicBlock*>(bb));
+    if (!loop) return std::nullopt;
+
+    // Terminator must be a conditional branch
+    auto* termBr = llvm::dyn_cast<llvm::BranchInst>(bb->getTerminator());
+    if (!termBr || !termBr->isConditional()) return std::nullopt;
+
+    auto* condVal = termBr->getCondition();
+    if (!condVal) return std::nullopt;
+
+    // Locate the canonical induction variable
+    const llvm::PHINode* iv = findLoopIV(loop, SE);
+    if (!iv) return std::nullopt;
+
+    // -------------------------------------------------------
+    // Parse the branch condition into DNF (AffineCondition)
+    // -------------------------------------------------------
+
+    // Parse a single ICmpInst as a RangeCondition on iv (nullopt if not eligible)
+    auto parseSingleRC = [&](const llvm::ICmpInst* cmp)
+            -> std::optional<RangeCondition> {
+        // llvm::errs() << "DEBUG: getTrueRatio: Parsing ICmpInst: " << *cmp << "\n";
+        auto* op0 = cmp->getOperand(0);
+        auto* op1 = cmp->getOperand(1);
+        bool ivLeft  = (op0 == iv);
+        bool ivRight = (op1 == iv);
+        if (!ivLeft && !ivRight) return std::nullopt;
+        auto* nonIv = ivLeft ? op1 : op0;
+        if (!isLI(nonIv, loop))   return std::nullopt;
+        // llvm::errs() << "DEBUG: getTrueRatio: Non-IV operand is loop-invariant: " << *nonIv << "\n";
+
+        auto pred = cmp->getPredicate();
+        if (ivRight) pred = llvm::ICmpInst::getSwappedPredicate(pred);
+
+        RangeOp op;
+        switch (pred) {
+            case llvm::CmpInst::ICMP_SLT: op = RangeOp::LT; break;
+            case llvm::CmpInst::ICMP_ULT: op = RangeOp::LT; break;
+            case llvm::CmpInst::ICMP_SLE: op = RangeOp::LE; break;
+            case llvm::CmpInst::ICMP_ULE: op = RangeOp::LE; break;
+            case llvm::CmpInst::ICMP_SGT: op = RangeOp::GT; break;
+            case llvm::CmpInst::ICMP_UGT: op = RangeOp::GT; break;
+            case llvm::CmpInst::ICMP_SGE: op = RangeOp::GE; break;
+            case llvm::CmpInst::ICMP_UGE: op = RangeOp::GE; break;
+            case llvm::CmpInst::ICMP_EQ:  op = RangeOp::EQ; break;
+            case llvm::CmpInst::ICMP_NE:  op = RangeOp::NE; break;
+            default: return std::nullopt;  // unsigned predicates not handled
+        }
+        auto v = value2Expr(*nonIv);
+        // Normalise to 64-bit signed
+        if      (v.getBitwidth() < 64) v = v.signedExtend(64 - v.getBitwidth());
+        else if (v.getBitwidth() > 64) return std::nullopt;
+
+        // llvm::errs() << "DEBUG: getTrueRatio: get range condition " << "\n";
+        return RangeCondition{op, v};
+    };
+
+    // Recursively parse a Value into DNF
+    std::function<std::optional<AffineCondition>(const llvm::Value*)> parseAC;
+    parseAC = [&](const llvm::Value* val) -> std::optional<AffineCondition> {
+        if (!val) return std::nullopt;
+
+        // llvm::errs() << "DEBUG: getTrueRatio: get AC Parsing Value: " << *val << "\n";
+
+        // if it is a freeze instruction, skip it and parse its operand (e.g., icmp freeze (iv) vs icmp (iv))
+        if (auto* freeze = llvm::dyn_cast<llvm::FreezeInst>(val))
+            return parseAC(freeze->getOperand(0));
+
+        if (auto* cmp = llvm::dyn_cast<llvm::ICmpInst>(val)) {
+            auto rc = parseSingleRC(cmp);
+            if (!rc) return std::nullopt;
+            return AffineCondition{{*rc}};
+        }
+        if (auto* inst = llvm::dyn_cast<llvm::Instruction>(val)) {
+            if (inst->getOpcode() == llvm::Instruction::And) {
+                auto ac0 = parseAC(inst->getOperand(0));
+                auto ac1 = parseAC(inst->getOperand(1));
+                if (!ac0 || !ac1) return std::nullopt;
+                // AND: cross-product of terms (distribute over OR)
+                AffineCondition result;
+                for (auto& t0 : *ac0)
+                    for (auto& t1 : *ac1) {
+                        Term merged;
+                        merged.insert(merged.end(), t0.begin(), t0.end());
+                        merged.insert(merged.end(), t1.begin(), t1.end());
+                        result.push_back(std::move(merged));
+                    }
+                return result;
+            }
+            if (inst->getOpcode() == llvm::Instruction::Or) {
+                auto ac0 = parseAC(inst->getOperand(0));
+                auto ac1 = parseAC(inst->getOperand(1));
+                if (!ac0 || !ac1) return std::nullopt;
+                // OR: union of terms
+                AffineCondition result;
+                result.insert(result.end(), ac0->begin(), ac0->end());
+                result.insert(result.end(), ac1->begin(), ac1->end());
+                return result;
+            }
+        }
+        return std::nullopt;
+    };
+
+    auto ac = parseAC(condVal);
+    if (!ac || ac->empty()) return std::nullopt;
+    // llvm::errs() << "DEBUG: getTrueRatio: parsed affine condition with " << ac->size() << " terms\n";
+
+    // -------------------------------------------------------
+    // Get the loop's iteration range R0 as an arithmetic progression.
+    // -------------------------------------------------------
+    const auto* addRec = llvm::dyn_cast<llvm::SCEVAddRecExpr>(
+        SE.getSCEV(const_cast<llvm::PHINode*>(iv)));
+    if (!addRec || !addRec->isAffine()) return std::nullopt;
+    // llvm::errs() << "DEBUG: getTrueRatio: found affine AddRec for IV: " << *addRec << "\n";
+
+    const auto* constStep = llvm::dyn_cast<llvm::SCEVConstant>(
+        addRec->getStepRecurrence(SE));
+    if (!constStep) return std::nullopt;
+    auto stepValue = constStep->getValue()->getSExtValue();
+    if (stepValue == 0) return std::nullopt;
+    // llvm::errs() << "DEBUG: getTrueRatio: found constant step for IV: " << *constStep << "\n";
+
+    const llvm::SCEV* btc = SE.getBackedgeTakenCount(loop);
+    if (llvm::isa<llvm::SCEVCouldNotCompute>(btc)) return std::nullopt;
+    // llvm::errs() << "DEBUG: getTrueRatio: backedge taken count SCEV: " << *btc << "\n";
+
+    // Build R0
+    auto S = SCEV2Expr(*addRec->getStart());
+    if (S.getBitwidth() < 64) S = S.signedExtend(64 - S.getBitwidth());
+
+    auto BTC = SCEV2Expr(*btc);
+    if (BTC.getBitwidth() < 64) BTC = BTC.zeroExtend(64 - BTC.getBitwidth());
+
+    auto stepExpr64 = SEM.bvVal(static_cast<uint64_t>(stepValue), 64);
+    auto last = S + BTC * stepExpr64;
+    auto absStep = static_cast<uint64_t>(std::llabs(static_cast<long long>(stepValue)));
+
+    // Normalize to an ascending arithmetic progression while preserving the
+    // exact set of IV values.
+    AffineRange R0 = (stepValue > 0)
+        ? AffineRange(S, last, S, absStep /*, D={} */)
+        : AffineRange(last, S, last, absStep /*, D={} */);
+
+    // -------------------------------------------------------
+    // Apply transfer functions: I_i = F_{T_i}(R0)
+    // -------------------------------------------------------
+    std::vector<AffineRange> Iranges;
+    Iranges.reserve(ac->size());
+    for (const auto& term : *ac)
+        Iranges.push_back(applyTerm(R0, term, SEM));
+
+    // -------------------------------------------------------
+    // Inclusion-exclusion: trueCount = Σlen(I_i) − Σlen(Ω(I_i,I_j))
+    // -------------------------------------------------------
+    auto lenR0     = computeLen(R0, SEM);
+    auto trueCount = SEM.bvVal(0, 64);
+    for (const auto& Ii : Iranges)
+        trueCount = trueCount + computeLen(Ii, SEM);
+    for (size_t i = 0; i < Iranges.size(); ++i)
+        for (size_t j = i + 1; j < Iranges.size(); ++j)
+            trueCount = trueCount -
+                computeLen(computeOverlap(Iranges[i], Iranges[j], SEM), SEM);
+
+    // Return (numerator, denominator) without performing bitvector division.
+    // The caller is responsible for combining the two expressions as needed.
+
+    return make_pair(trueCount, lenR0);
+}
+
+optional<pair<SymbolicExpr, SymbolicExpr>> GA::getTrueRatio(const llvm::BasicBlock* bb){
     if (!bb) {
         llvm::errs() << "Error: getTrueRatio: BasicBlock is null\n";
         return std::nullopt;
@@ -807,13 +1184,23 @@ optional<SymbolicExpr> GA::getTrueRatio(const llvm::BasicBlock* bb){
         llvm::errs() << "Error: getTrueRatio: Terminator is null for block " << GraphBuilder::getName(bb) << "\n";
         return std::nullopt;
     }
-    if (!isSolvable(term)) {
-        llvm::errs() << "Warning: getTrueRatio: Terminator not solvable for block " << GraphBuilder::getName(bb) << "\n";
-        return std::nullopt;
+
+    if (isSolvable(term)){
+        // denominator = 1 for loop-invariant conditions (exact ratio, no fractional part)
+
+        
+        auto cond = inst2Expr(*term); //1-bit vector return
+        // llvm::errs() << "DEBUG: getTrueRatio: Solvable terminator for block " << GraphBuilder::getName(bb) << ": " << *term << ", trueCount = " << cond.str() << "\n";
+        return make_pair(cond.zeroExtend(63), SEM.bvVal(1, 64));
     }
 
-    auto cond = inst2Expr(*term); //1-bit vector return
-    return cond.zeroExtend(63); // Convert 1-bit condition to 64-bit vector
+    // attempt the affine-condition analysis for loop-varying branches
+    if (auto affineResult = tryAffineTrueRatio(bb)) {
+        return affineResult;  // already a (numerator, denominator) pair
+    }
+    
+    llvm::errs() << "Warning: getTrueRatio: Terminator not solvable for block " << GraphBuilder::getName(bb) << "\n";
+    return std::nullopt;
 }
 
 optional<SymbolicExpr> GA::getLoopCount(llvm::Loop* loop){
@@ -965,6 +1352,78 @@ SymbolicExpr GA::SCEV2Expr(const llvm::SCEV& scev) {
         }
     }
     return SEM.bvSCEV(scev);
+}
+
+SymbolicExpr GA::call2Expr(const llvm::CallInst& C) {
+    auto id = C.getIntrinsicID();
+    if (id == llvm::Intrinsic::not_intrinsic) {
+        if (const auto* callee = C.getCalledFunction()) {
+            auto name = callee->getName();
+            if (name.starts_with("llvm.smax.")) {
+                if (C.arg_size() == 2) {
+                    return SymbolicExpr::smax(value2Expr(*C.getArgOperand(0)),
+                                              value2Expr(*C.getArgOperand(1)));
+                }
+            }
+        }
+        llvm::errs() << "Warning: call2Expr unsupported intrinsic call, assumed to be 1: ";
+        C.print(llvm::errs());
+        llvm::errs() << "\n";
+
+        //cast to instruction and use SEM.getbitwidth to get the bitwidth for the return type of the call instruction
+        auto bitwidth = SEM.getBitWidth(dynamic_cast<const llvm::Instruction&>(C));
+        return SEM.bvVal(1, bitwidth);
+    }
+
+    auto selectMinSigned = [&](const SymbolicExpr& a, const SymbolicExpr& b) {
+        return SymbolicExpr::select(SymbolicExpr::sle(a, b), a, b);
+    };
+    auto selectMaxUnsigned = [&](const SymbolicExpr& a, const SymbolicExpr& b) {
+        return SymbolicExpr::select(SymbolicExpr::uge(a, b), a, b);
+    };
+    auto selectMinUnsigned = [&](const SymbolicExpr& a, const SymbolicExpr& b) {
+        return SymbolicExpr::select(SymbolicExpr::ule(a, b), a, b);
+    };
+
+    switch (id) {
+        case llvm::Intrinsic::smax:
+            if (C.arg_size() == 2)
+                return SymbolicExpr::smax(value2Expr(*C.getArgOperand(0)),
+                                          value2Expr(*C.getArgOperand(1)));
+            break;
+        case llvm::Intrinsic::smin:
+            if (C.arg_size() == 2)
+                return selectMinSigned(value2Expr(*C.getArgOperand(0)),
+                                       value2Expr(*C.getArgOperand(1)));
+            break;
+        case llvm::Intrinsic::umax:
+            if (C.arg_size() == 2)
+                return selectMaxUnsigned(value2Expr(*C.getArgOperand(0)),
+                                         value2Expr(*C.getArgOperand(1)));
+            break;
+        case llvm::Intrinsic::umin:
+            if (C.arg_size() == 2)
+                return selectMinUnsigned(value2Expr(*C.getArgOperand(0)),
+                                         value2Expr(*C.getArgOperand(1)));
+            break;
+        case llvm::Intrinsic::abs:
+            if (C.arg_size() >= 1) {
+                auto x = value2Expr(*C.getArgOperand(0));
+                auto zero = SEM.bvVal(0, x.getBitwidth());
+                return SymbolicExpr::select(SymbolicExpr::sge(x, zero), x, -x);
+            }
+            break;
+        default:
+            break;
+    }
+
+    llvm::errs() << "Warning: call2Expr unsupported intrinsic call, assumed to be 1: ";
+    C.print(llvm::errs());
+    llvm::errs() << "\n";
+
+    //cast to instruction and use SEM.getbitwidth to get the bitwidth for the return type of the call instruction
+    auto bitwidth = SEM.getBitWidth(dynamic_cast<const llvm::Instruction&>(C));
+    return SEM.bvVal(1, bitwidth);
 }
 
 // expands an instruction into a symbolic expression
@@ -1153,6 +1612,16 @@ SymbolicExpr GA::inst2Expr(const llvm::Instruction& I) {
                              << targetBitwidth << " > " << srcBitwidth << "\n";
                 return SEM.bvInst(I);
             }
+        }
+        case llvm::Instruction::Freeze:{
+            auto op = I.getOperand(0);
+            return value2Expr(*op);
+        }
+        case llvm::Instruction::Call: {
+            if (auto *call = llvm::dyn_cast<llvm::CallInst>(&I)) {
+                return call2Expr(*call);
+            }
+            return SEM.bvInst(I);
         }
         default:
             llvm::errs() << "Warning: inst2Expr Unsupported instruction, assumed to return 1 " << I.getOpcodeName() ;
@@ -1484,7 +1953,7 @@ void GraphViewer::showBranch(shared_ptr<Branch> BR, std::ostream& os, int indent
     }
 
     os << pad << "Branch: " << BR->name << "\n";
-    os << pad << "True Ratio: " << BR->trueRatio.str() << "\n";
+    os << pad << "True Ratio: " << BR->trueRatioNum.str() << " / " << BR->trueRatioDen.str() << "\n";
     os << pad << "True Side Graph:\n";
     showGraph(BR->G1, os, indent + 2);
     os << pad << "False Side Graph:\n";
@@ -1710,8 +2179,8 @@ nlohmann::json GraphViewer::branchToJson(shared_ptr<Branch> BR) {
 
     j["id"] = BR->id;
     j["name"] = BR->name;
-    j["true_ratio"] = BR->trueRatio.str();
-    j["false_ratio"] = BR->falseRatio.str();
+    j["true_ratio"] = { {"num", BR->trueRatioNum.str()}, {"den", BR->trueRatioDen.str()} };
+    j["false_ratio"] = { {"num", BR->falseRatioNum.str()}, {"den", BR->falseRatioDen.str()} };
     j["G1"] = BR->G1 ? graphToJson(BR->G1) : nlohmann::json::object();
     j["G2"] = BR->G2 ? graphToJson(BR->G2) : nlohmann::json::object();
     j["graph_type"] = "Branch";

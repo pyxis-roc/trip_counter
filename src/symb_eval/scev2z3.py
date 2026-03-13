@@ -86,6 +86,13 @@ def parse_symb_count(expr, var_map=None):
         right = parse_symb_count(args[1], var_map)
         return If(left > right, left, right)
 
+    # TR_num_%xxx / TR_den_%xxx
+    m = re.match(r'TR_(num|den)_([%\w\.\= ]+)', expr)
+    if m:
+        kind = m.group(1)
+        suffix = m.group(2).strip()
+        return get_int_var(f'TR_{kind}_{suffix}', var_map)
+
     # TR_%xxx
     m = re.match(r'TR_([%\w\.\= ]+)', expr)
     if m:

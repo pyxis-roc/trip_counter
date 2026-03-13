@@ -1,0 +1,180 @@
+\subsection{Solving $trueRatio()$ for Affine Conditions}\label{sec:affine-condition}
+
+If the conditional expression in the branch for which $trueRatio()$ is calculated is loop invariant, we can usually form a symbolic expression containing function parameters using data flow as in the previous section.
+However, when branch conditions are not loop invariant, computing a symbolic form of $trueRatio()$ in general is difficult.
+We describe how to construct a symbolic form for the most common case in ML kernels, when branch conditions involve a comparison with affine expression over the induction variable. 
+
+\subsubsection{Example} \label{sec:range-example}
+We start by showing an representative case when the condition depends on loop's induction variable. 
+Listing~\ref{lst:tvm-conv-example} shows the convolution kernel used in image processing machine learning models.
+The convolution kernel applies a fixed-size stencil (also known as the kernel) to a larger image.
+The stencil accumulates values of neighboring pixels into the output pixel. 
+Since images have finite extents, pixels at the boundaries have no neighbors.
+The conv kernel must check if a pixel is on the boundary (line~\ref{line:conv-lower}-\ref{line:conv-cond}). Then it performs different operations for internal pixels (at line~\ref{line:conv-A}) and boundary pixels (at line~\ref{line:conv-B}). For our framework to work, we need to compute the $trueRatio()$ for the branch at line~\ref{line:conv-branch}. In other words, we need to know the proportion of pixels that are within the boundary. 
+
+A natural solution is to view the iteration space of the induction variable as a range. While conditions imposed on the induction variable create a refined range that is smaller than the original one. In this example, the original iteration space for $i$ is $ [0,H+1]$ (line ~\ref{line:conv-for}). The conditions define a finer range of $[1,H]$ (line~\ref{line:conv-lower}-\ref{line:conv-cond}). The $trueRatio()$ hence can be represented using fraction of refined range over the original range e.g. $\frac{|[1,H]|}{|[0,H+1]|}$. In the following we aim to generalize and formalize such analysis.
+
+\begin{figure}[tbp]
+\centering
+\begin{lstlisting}[
+  style=clean, language=C,
+  caption={Simplified boundary detection code of TVM conv kernel.}, label={lst:tvm-conv-example},
+  numbers=left, numberstyle=\tiny, numbersep=6pt,
+  xleftmargin=2em,            % reserve space for numbers
+  framexleftmargin=2em,       % match if you use a frame
+  columns=fullflexible,       % better width calc
+  breaklines=true,            % wrap long lines if any
+  basicstyle=\ttfamily\footnotesize,
+  escapechar=|
+]
+for (int i = 0; i< H +2; i++){ |\label{line:conv-for}|
+    bool lower = i != 0;  |\label{line:conv-lower}|
+    bool upper = i <= H;  |\label{line:conv-upper}|
+    bool cond = lower && upper; |\label{line:conv-cond}|
+    if(cond){ |\label{line:conv-branch}|
+        A  |\label{line:conv-A}|
+    }
+    else{
+        B  |\label{line:conv-B}|
+    }
+}
+\end{lstlisting}
+\end{figure}
+
+\subsubsection{Induction Variable Range Analysis}
+
+We first define a range as a three-element tuple. 
+\[
+R := \mathrm{range}(s,e,D) \mid \varnothing
+\]
+\[
+\mathrm{range}(s,e,D) :=
+\{\,n\in\mathbb{Z}\;\mid\; s\le n\le e,\ n\notin D\,\}
+\]
+
+where $s$ and $e$ represent the bounds and $D$ is a set of deleted points. To mimic the analysis in Section~\ref{sec:range-example}, we create the original range $R_0$ which represents the iteration space of the induction variable $i$.
+\[
+R_0 = \mathrm{range}(S,E,\varnothing),
+\]
+where $S$ and $E$ are initialized by the corresponding loop bounds. 
+
+Then we define a set of possible conditions that can constraint the value of the induction variable.
+Fig.~\ref{fig:cfg-ac} describes the grammar of the conditional expressions we consider. The smallest condition that affect the range of the induction variable is range condition denoted as $\langle RC \rangle$. Here $i$ represents the induction variable, and $v$ represents variable or an expression of variables as described in Section~\ref{sec:simple-case}. Here we assume $v$ does not depend on $i$. In principle, simple expressions containing $i$ can be manipulated to place $i$ on one side and others on the other, for example $i+1<3$ can be converted to $i<2$. However, in general it is difficult, for example, solving expressions like $i==(i+1)^2$ is not straightforward. We believe that in ML kernels, conditions on induction variables are simple and can be captured by the existing grammar. 
+
+The final affine conditions denoted as $\langle AC \rangle$ is constructed by grouping $\langle RC \rangle$ in disjunctive normal form (DNF). The conjunctive term $\langle T \rangle$ is first constructed by connecting multiple range conditions with logical $\mathbf{and}$. Then the final affine conditions $\langle AC\rangle$ is constructed by connecting $\langle T \rangle$ with logical $\mathbf{or}$.
+
+
+\begin{figure}[tbp]
+\centering
+\small
+\begin{minipage}{0.95\linewidth}
+\[
+\begin{array}{rcl}
+\langle AC \rangle & ::= & \langle T \rangle 
+                     \mid \langle T \rangle\ \mathbf{or}\ \langle AC \rangle \\[6pt]
+\langle T \rangle  & ::= & \langle RC \rangle
+                     \mid \langle RC \rangle\ \mathbf{and}\ \langle T \rangle \\[6pt]
+\langle RC \rangle & ::= & i\ \langle rop \rangle\  v 
+                     \mid v\ \langle rop \rangle\ i \\[6pt]
+\langle rop \rangle & ::= & \mathtt{<}\ \mid\ \mathtt{>}\ \mid\ \mathtt{<=}\ \mid\ \mathtt{>=}\ \mid\ \mathtt{==}\ \mid\ \mathtt{!=}
+\end{array}
+\]
+\end{minipage}
+\caption{Context-Free Grammar for $\langle AC \rangle$}
+\label{fig:cfg-ac}
+\end{figure}
+
+
+Our analysis is to gradually refine the original range $R_0$ based on those conditions. We start by defining the effect of the finest component $\langle RC \rangle$ on ranges through a transfer function $F$. It takes in a range, and returns a refined range based on the given range condition. 
+\[
+F : R \to R
+\]
+We show the six transfer functions for the six relational operation in the following. For brevity, we omit $\mathrm{range}(s, e, D)$ on the LHS and just use $R$:
+\[
+\begin{array}{rcl}
+F_{\,i \le v}(R)   &=& \mathrm{range}(s,\min(e,v),\,D) \\[4pt]
+F_{\,i < v}(R)     &=& \mathrm{range}(s,\min(e,v-1),\,D) \\[4pt]
+F_{\,i \ge v}(R)   &=& \mathrm{range}(\max(s,v),\,e,\,D) \\[4pt]
+F_{\,i > v}(R)     &=& \mathrm{range}(\max(s,v+1),\,e,\,D) \\[4pt]
+F_{\,i \neq v}(R)  &=& \mathrm{range}(s,e,D\cup\{v\}) \\[6pt] 
+F_{\,i == v}(R)    &=& \begin{cases}
+   \mathrm{range}(v,v,D) & s\le v\le e,\\
+   \mathrm{\varnothing} & \text{otherwise}.
+ \end{cases} 
+\end{array}
+\]
+
+The effect of the conjunctive term $\langle T \rangle$ can then be derived as follows from the composition of the above transfer functions:
+
+\[
+ T = RC_1 \ \mathbf{and}\ RC_2 \ \mathbf{and}\ \cdots \ \mathbf{and}\ RC_m,
+\]
+\[
+F_{T}(R)
+  = \big( F_{RC_m} \circ \cdots \circ F_{RC_2} \circ F_{RC_1} \big)(R)
+\]
+
+%with $R = R_0$. \sree{TODO: verify the use $R_0$}
+
+Finally, the effect of affine conditions $\langle AC\rangle$ is to combine ranges that are extracted by conjunctive terms $\langle T\rangle$. We use $I$ to represent range defined by individual $\langle T\rangle$. 
+\[
+    AC = T_1 \ \mathbf{or} \ T_2 \ \mathbf{or} \ \cdots \ \mathbf{or} \ T_n
+\]
+\[
+I_i := F_{T_i}(R_0) = \operatorname{range}(s_i,e_i,D_i), \quad i=1,\dots,n.
+\]
+Going to the end, we need to count the number elements in the original range and that in the refined ranges. We introduce a help function $\Omega$ to handle range overlapping so that no element is counted more than once in the refined ranges.
+\[
+\Omega : R \times R \to R
+\]
+\[
+\Omega(I_i, I_j)\ = \ \operatorname{range}\bigl(\max(s_i, s_j),\, \min(e_i, e_j),\, D_i \cap D_j)
+\]
+We can then get the set $\mathcal{I}$ of all ranges defined conjunctive terms, and the set $\mathcal{O}$ of pairwise overlapping.
+% Collect all base ranges and all pairwise overlaps (try all pairs)
+\[
+\begin{array}{rcl}
+\mathcal{I} &:=& \{I_i \mid i=1,\dots,n \,\},\\[2pt]
+\mathcal{O} &:=& \{\, \Omega(I_i,I_j) \ \mid 1 \le i < j \le n \,\}.
+\end{array}
+\]
+The last piece is the $len$ function to compute the number of elements within a range. It is for the case when iteration step size is 1. Support for different step size requires a small change to the $len$ function which we omit here for simplicity.
+\[
+len(range(s,e,D)) = \begin{cases}
+    (e-s+1) -|D\cap[s,e]| & s\le e, \\
+    0 & \mathrm{otherwise}\\
+\end{cases}
+\]
+
+Finally, the $trueRatio$ of a set of affine conditions ($AC$) can be computed by counting the number of elements in the original range and that satisfy the affine conditions. 
+\[
+trueRatio_{AC} = \frac{\sum_{I\in \mathcal{I}} len(I) - \sum_{O \in \mathcal{O}} len(O)}{len(R_0)} 
+\]
+This analysis enables us to extract precise $trueRatio()$ for induction-variable-dependent branches inside loops. 
+
+\subsubsection{Running Example}
+
+For illustration purpose, we apply the introduced analysis to the conv example in Section~\ref{sec:range-example}. First we have the original range defined in line~\ref{line:conv-for}:
+\[
+    R_0 = range(0,H+1,\varnothing)
+\]
+The affine condition is defined by a single conjunctive form that contains two range conditions:
+\[
+    AC = T= (i \neq 0) \ \mathbf{and}\ (i \le H) 
+\]
+By applying the transfer function $F$, we can get the refined range:
+\begin{align} 
+    F_{(i \neq 0 \ \textbf{and}\ i \le H)} (R_0) &= (F_{i \le H} \circ F_{i\neq 0})(R_0) \notag\\ 
+    &= F_{i \le H} (F_{i\neq 0} (R_0)) \notag \\ 
+    &= F_{i\le H}(range(0, H+1, \{0\})) \notag\\
+    &= range(0, min(H, H+1),\{0\}) \notag\\ 
+    &= range(0,H,\{0\}) \notag
+\end{align}
+Since there is only one conjunctive term in the affine conditions, there is no overlapped range simplifying the computation of the final $trueRatio$. Based on the $trueRatio$ formula and the $len$ function, we get:
+\begin{align} 
+    trueRatio_{AC} &= \frac{\sum_{I\in \mathcal{I}} len(I) - \sum_{O \in \mathcal{O}} len(O)}{len(R_0)} \notag\\ 
+    &= \frac{len(range(0,H,\{0\}))}{len(range(0,H+1,\varnothing))} \notag\\ 
+    &= \frac{H-0+1-1}{H+1-0+1} \notag\\ 
+    &= \frac{H}{H+2} \notag
+\end{align}
+Given the above formula, for $H=100$, we will have $trueRatio = \frac{100}{102}$ which can be used in other computations generated by the framework. 

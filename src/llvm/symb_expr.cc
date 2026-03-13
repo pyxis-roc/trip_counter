@@ -67,6 +67,10 @@ SymbolicExpr SymbolicExpr::operator/(const SymbolicExpr& rhs) const {
     return SymbolicExpr(ctx_, expr_ / rhs.expr_);
 }
 
+SymbolicExpr SymbolicExpr::operator%(const SymbolicExpr& rhs) const {
+    return SymbolicExpr(ctx_, z3::srem(expr_, rhs.expr_));
+}
+
 SymbolicExpr SymbolicExpr::operator-() const {
     return SymbolicExpr(ctx_, -expr_);
 }
@@ -286,6 +290,7 @@ SymbolicExpr SymbolicExprManager::named64(const std::string& name) {
     }
     auto expr = SymbolicExpr(ctx_, ctx_.bv_const(name.c_str(), 64));
     rawExprCache.emplace(name, expr);
+    totalExprCount++;
     return expr;
 }
 

@@ -125,17 +125,25 @@ public:
 
 class Branch : public BasicGraph{
 public:
-    SymbolicExpr trueRatio;
-    SymbolicExpr falseRatio;
+    // TrueRatio is represented as a fraction (trueRatioNum / trueRatioDen)
+    // to avoid bitvector integer division truncation.
+    SymbolicExpr trueRatioNum;
+    SymbolicExpr trueRatioDen;
+    SymbolicExpr falseRatioNum;
+    SymbolicExpr falseRatioDen;
     shared_ptr<Graph> G1;
     shared_ptr<Graph> G2;
 
-    Branch(shared_ptr<BasicGraph> BG, SymbolicExpr trueRatio, 
-            SymbolicExpr falseRatio, shared_ptr<Graph> G1, 
+    Branch(shared_ptr<BasicGraph> BG,
+            SymbolicExpr trueRatioNum, SymbolicExpr trueRatioDen,
+            SymbolicExpr falseRatioNum, SymbolicExpr falseRatioDen,
+            shared_ptr<Graph> G1, 
             std::shared_ptr<Graph> G2): 
         BasicGraph(BG->id, BG->name, BG->count), 
-        trueRatio(trueRatio),
-        falseRatio(falseRatio), 
+        trueRatioNum(trueRatioNum),
+        trueRatioDen(trueRatioDen),
+        falseRatioNum(falseRatioNum),
+        falseRatioDen(falseRatioDen),
         G1(G1),
         G2(G2){}
     
@@ -269,9 +277,19 @@ public:
 
         // data flow tracking
         optional<SymbolicExpr> getLoopCount(llvm::Loop* loop);
-        optional<SymbolicExpr> getTrueRatio(const llvm::BasicBlock*);
+        // Returns (numerator, denominator) of the true-ratio fraction so that
+        // bitvector integer division is deferred to the caller.
+        optional<pair<SymbolicExpr, SymbolicExpr>> getTrueRatio(const llvm::BasicBlock*);
+
+        // Affine condition analysis for loop-varying branch conditions.
+        // Implements the range-based trueRatio computation described in
+        // affine-conditions-solving.txt.  Returns nullopt when the branch
+        // condition cannot be parsed as an affine condition on the loop IV.
+        // Returns (trueCount, lenR0) — caller performs the division.
+        optional<pair<SymbolicExpr, SymbolicExpr>> tryAffineTrueRatio(const llvm::BasicBlock* bb);
 
         SymbolicExpr SCEV2Expr(const llvm::SCEV& E);
+        SymbolicExpr call2Expr(const llvm::CallInst& C);
         SymbolicExpr inst2Expr(const llvm::Instruction& I);
         SymbolicExpr value2Expr(const llvm::Value& V);
 

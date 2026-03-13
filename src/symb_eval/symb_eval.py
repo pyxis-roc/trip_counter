@@ -60,31 +60,52 @@ def guess_true_ratio(z3expr) -> list[tuple]:
     Guess the True Ratio to be 0 or 1 such that the resulting counts are non-zero.
     Returns a list of guessed True Ratios for later substitution.
     """
-    # Find all variables in z3expr with names starting with "TR_"
-    tr_vars = []
+    # Find all variables that encode unresolved true ratios.
+    scalar_tr_vars = []
+    split_tr_vars = {}
     def collect_tr_vars(expr):
         if is_const(expr) and expr.decl().kind() == Z3_OP_UNINTERPRETED:
-            if expr.decl().name().startswith("TR_"):
-                tr_vars.append(expr)
+            name = expr.decl().name()
+            if name.startswith("TR_num_"):
+                split_tr_vars.setdefault(name[len("TR_num_"):], {})["num"] = expr
+            elif name.startswith("TR_den_"):
+                split_tr_vars.setdefault(name[len("TR_den_"):], {})["den"] = expr
+            elif name.startswith("TR_"):
+                scalar_tr_vars.append(expr)
         for child in expr.children():
             collect_tr_vars(child)
     collect_tr_vars(z3expr)
-    tr_vars = list(set(tr_vars))
+    scalar_tr_vars = list(set(scalar_tr_vars))
+
+    # Backward-compatible heuristic for split placeholders:
+    # treat TR_num_* as the old boolean-like branch selector and force TR_den_* = 1.
+    fixed_subs = []
+    split_num_vars = []
+    for _, pieces in split_tr_vars.items():
+        if "den" in pieces:
+            fixed_subs.append((pieces["den"], IntVal(1)))
+        if "num" in pieces:
+            split_num_vars.append(pieces["num"])
+    split_num_vars = list(set(split_num_vars))
+
+    guess_vars = scalar_tr_vars + split_num_vars
 
     # Try all combinations of 0/1 assignments to TR variables
     s = Solver()
-    for values in product([0, 1], repeat=len(tr_vars)):
+    for values in product([0, 1], repeat=len(guess_vars)):
         s.push()
-        for v, val in zip(tr_vars, values):
+        for v, val in fixed_subs:
+            s.add(v == val)
+        for v, val in zip(guess_vars, values):
             s.add(v == val)
         s.add(z3expr != 0)
         if s.check() == sat:
             model = s.model()
-            result = [(v, model[v]) for v in tr_vars]
+            result = fixed_subs + [(v, model[v]) for v in guess_vars]
             s.pop()
             return result
         s.pop()
-    return []
+    return fixed_subs
 
 
 EvaluatedGraph = namedtuple(
