@@ -14,6 +14,7 @@ a function that takes two integers as input and returns their sum f(x, y) = x + 
 #include <llvm/IR/Function.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Constants.h>
+#include <llvm/ADT/APInt.h>
 
 #include <cstdlib>
 #include <llvm/IR/Type.h>
@@ -663,19 +664,54 @@ llvm::Value* SymbInstance::createValueFromZ3Expr(llvm::LLVMContext& ctx, llvm::I
         }
         
         case Z3_OP_CONCAT: {
-            unsigned low_width = expr.arg(1).get_sort().bv_size();
-            unsigned dst_width = bitWidth;
-            llvm::Type* dstTy = llvm::IntegerType::get(ctx, dst_width);
-            llvm::Value* high = llvmOps[0];
-            llvm::Value* low = llvmOps[1];
-            // Extend parts to destination width
-            if (high->getType() != dstTy) high = builder.CreateZExt(high, dstTy);
-            if (low->getType() != dstTy) low = builder.CreateZExt(low, dstTy);
-            llvm::Value* high_shifted = builder.CreateShl(
-                high, 
-                llvm::ConstantInt::get(dstTy, low_width)
-            );
-            return cacheAndReturn(builder.CreateOr(high_shifted, low));
+            unsigned concatWidth = 0;
+            for (unsigned i = 0; i < num_args; ++i) {
+                concatWidth += expr.arg(i).get_sort().bv_size();
+            }
+
+            llvm::Type* exactTy = llvm::IntegerType::get(ctx, concatWidth);
+
+            auto fitUnsigned = [&](llvm::Value* value, llvm::Type* dstTy) -> llvm::Value* {
+                unsigned srcWidth = value->getType()->getIntegerBitWidth();
+                unsigned dstWidth = dstTy->getIntegerBitWidth();
+                if (srcWidth < dstWidth) return builder.CreateZExt(value, dstTy, "concat_zext");
+                if (srcWidth > dstWidth) return builder.CreateTrunc(value, dstTy, "concat_trunc");
+                return value;
+            };
+
+            auto maskToWidth = [&](llvm::Value* value, unsigned width) -> llvm::Value* {
+                unsigned storageWidth = value->getType()->getIntegerBitWidth();
+                if (width >= storageWidth) return value;
+                llvm::APInt mask = llvm::APInt::getLowBitsSet(storageWidth, width);
+                return builder.CreateAnd(
+                    value,
+                    llvm::ConstantInt::get(value->getType(), mask),
+                    "concat_mask"
+                );
+            };
+
+            llvm::Value* result = llvm::ConstantInt::get(exactTy, 0);
+            unsigned shiftAmount = concatWidth;
+            for (unsigned i = 0; i < num_args; ++i) {
+                unsigned argWidth = expr.arg(i).get_sort().bv_size();
+                shiftAmount -= argWidth;
+
+                llvm::Value* part = fitUnsigned(llvmOps[i], exactTy);
+                part = maskToWidth(part, argWidth);
+                if (shiftAmount != 0) {
+                    part = builder.CreateShl(
+                        part,
+                        llvm::ConstantInt::get(exactTy, shiftAmount),
+                        "concat_shl"
+                    );
+                }
+                result = builder.CreateOr(result, part, "concattmp");
+            }
+
+            if (result->getType() != intTy) {
+                result = fitUnsigned(result, intTy);
+            }
+            return cacheAndReturn(result);
         }
 
         case Z3_OP_UNINTERPRETED: {
