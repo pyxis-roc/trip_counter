@@ -35,6 +35,7 @@ public:
     SymbolicExpr operator%(const SymbolicExpr& rhs) const;
     SymbolicExpr operator-() const;
     SymbolicExpr operator&(const SymbolicExpr& rhs) const;
+    SymbolicExpr operator|(const SymbolicExpr& rhs) const;
 
     SymbolicExpr signedExtend(unsigned additionalBits) const;
     SymbolicExpr zeroExtend(unsigned additionalBits) const;

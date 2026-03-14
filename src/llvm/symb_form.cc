@@ -1355,23 +1355,46 @@ SymbolicExpr GA::SCEV2Expr(const llvm::SCEV& scev) {
 }
 
 SymbolicExpr GA::call2Expr(const llvm::CallInst& C) {
+    auto bitwidth = SEM.getBitWidth(static_cast<const llvm::Instruction&>(C));
+    auto getCalledName = [&]() -> std::optional<std::string> {
+        if (const auto* callee = C.getCalledFunction()) {
+            return callee->getName().str();
+        }
+
+        const auto* calledOperand = C.getCalledOperand()->stripPointerCasts();
+        if (const auto* global = llvm::dyn_cast<llvm::GlobalValue>(calledOperand)) {
+            return global->getName().str();
+        }
+
+        if (const auto* load = llvm::dyn_cast<llvm::LoadInst>(calledOperand)) {
+            const auto* pointerOperand = load->getPointerOperand()->stripPointerCasts();
+            if (const auto* global = llvm::dyn_cast<llvm::GlobalValue>(pointerOperand)) {
+                return global->getName().str();
+            }
+        }
+
+        return std::nullopt;
+    };
+
     auto id = C.getIntrinsicID();
     if (id == llvm::Intrinsic::not_intrinsic) {
-        if (const auto* callee = C.getCalledFunction()) {
-            auto name = callee->getName();
+        if (auto calledName = getCalledName()) {
+            llvm::StringRef name(*calledName);
             if (name.starts_with("llvm.smax.")) {
                 if (C.arg_size() == 2) {
                     return SymbolicExpr::smax(value2Expr(*C.getArgOperand(0)),
                                               value2Expr(*C.getArgOperand(1)));
                 }
             }
+
+            if (name == "__TVMBackendFreeWorkspace") {
+                return SEM.bvVal(0, bitwidth);
+            }
         }
         llvm::errs() << "Warning: call2Expr unsupported intrinsic call, assumed to be 1: ";
         C.print(llvm::errs());
         llvm::errs() << "\n";
 
-        //cast to instruction and use SEM.getbitwidth to get the bitwidth for the return type of the call instruction
-        auto bitwidth = SEM.getBitWidth(dynamic_cast<const llvm::Instruction&>(C));
         return SEM.bvVal(1, bitwidth);
     }
 
@@ -1421,8 +1444,6 @@ SymbolicExpr GA::call2Expr(const llvm::CallInst& C) {
     C.print(llvm::errs());
     llvm::errs() << "\n";
 
-    //cast to instruction and use SEM.getbitwidth to get the bitwidth for the return type of the call instruction
-    auto bitwidth = SEM.getBitWidth(dynamic_cast<const llvm::Instruction&>(C));
     return SEM.bvVal(1, bitwidth);
 }
 
@@ -1479,6 +1500,13 @@ SymbolicExpr GA::inst2Expr(const llvm::Instruction& I) {
             auto non_zero_total = SymbolicExpr::ne(total_factor, SEM.intVal(0));
             return SymbolicExpr::select(non_zero_total, normalized_expr, SEM.intVal(0));
         
+        }
+        case llvm::Instruction::Or:{
+            auto op0 = I.getOperand(0);
+            auto op1 = I.getOperand(1);
+            auto expr0 = value2Expr(*op0);
+            auto expr1 = value2Expr(*op1);
+            return expr0 | expr1;
         }
         case llvm::Instruction::And:{
             auto op0 = I.getOperand(0);

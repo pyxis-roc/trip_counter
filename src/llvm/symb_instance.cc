@@ -393,20 +393,28 @@ llvm::Value* SymbInstance::createValueFromZ3Expr(llvm::LLVMContext& ctx, llvm::I
             
             // Create conditional branch
             builder.CreateCondBr(condVal, thenBB, elseBB);
+
+            // Branch-local instructions do not necessarily dominate sibling branches or
+            // the merge block. Start each branch from the same pre-branch cache snapshot
+            // so cached values created in one branch are never reused from another.
+            auto branchCache = exprCache;
             
             // Generate then branch - only evaluate expr.arg(1) in this branch
+            exprCache = branchCache;
             builder.SetInsertPoint(thenBB);
             llvm::Value* thenVal = createValueFromZ3Expr(ctx, builder, expr.arg(1));
             builder.CreateBr(mergeBB);
             llvm::BasicBlock* thenExitBB = builder.GetInsertBlock();
             
             // Generate else branch - only evaluate expr.arg(2) in this branch
+            exprCache = branchCache;
             builder.SetInsertPoint(elseBB);
             llvm::Value* elseVal = createValueFromZ3Expr(ctx, builder, expr.arg(2));
             builder.CreateBr(mergeBB);
             llvm::BasicBlock* elseExitBB = builder.GetInsertBlock();
             
             // Merge results with PHI node
+            exprCache = branchCache;
             builder.SetInsertPoint(mergeBB);
             llvm::PHINode* phi = builder.CreatePHI(intTy, 2, "itetmp");
             phi->addIncoming(thenVal, thenExitBB);

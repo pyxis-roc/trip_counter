@@ -79,6 +79,10 @@ SymbolicExpr SymbolicExpr::operator&(const SymbolicExpr& rhs) const {
     return SymbolicExpr(ctx_, expr_ & rhs.expr_);
 }
 
+SymbolicExpr SymbolicExpr::operator|(const SymbolicExpr& rhs) const {
+    return SymbolicExpr(ctx_, expr_ | rhs.expr_);
+}
+
 SymbolicExpr SymbolicExpr::signedExtend(unsigned additionalBits) const {
     return SymbolicExpr(ctx_, z3::sext(expr_, additionalBits));
 }
