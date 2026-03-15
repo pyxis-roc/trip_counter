@@ -841,7 +841,8 @@ struct AffineRange {
 };
 
 // Relational operator (from the grammar in affine-conditions-solving.txt)
-enum class RangeOp { LT, LE, GT, GE, EQ, NE};
+// Keep signed/unsigned variants explicit so range transfer uses correct semantics.
+enum class RangeOp { SLT, SLE, SGT, SGE, ULT, ULE, UGT, UGE, EQ, NE};
 
 // A single range condition: iv <rop> v  (iv always on the left after normalisation)
 struct RangeCondition {
@@ -855,6 +856,61 @@ using AffineCondition = std::vector<Term>;          // disjunction (DNF)
 // Signed minimum via select: min(a,b) = a ≤ b ? a : b
 static SymbolicExpr smin(const SymbolicExpr& a, const SymbolicExpr& b) {
     return SymbolicExpr::select(SymbolicExpr::sle(a, b), a, b);
+}
+
+static SymbolicExpr umin(const SymbolicExpr& a, const SymbolicExpr& b) {
+    return SymbolicExpr::select(SymbolicExpr::ule(a, b), a, b);
+}
+
+static SymbolicExpr umax(const SymbolicExpr& a, const SymbolicExpr& b) {
+    return SymbolicExpr::select(SymbolicExpr::uge(a, b), a, b);
+}
+
+static bool isUnsignedRangeOp(RangeOp op) {
+    switch (op) {
+        case RangeOp::ULT:
+        case RangeOp::ULE:
+        case RangeOp::UGT:
+        case RangeOp::UGE:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static bool hasUnsignedOps(const AffineCondition& ac) {
+    for (const auto& term : ac)
+        for (const auto& rc : term)
+            if (isUnsignedRangeOp(rc.op))
+                return true;
+    return false;
+}
+
+static bool containsDeletedPoint(const std::vector<SymbolicExpr>& points,
+                                 const SymbolicExpr& point) {
+    auto key = point.str();
+    for (const auto& p : points) {
+        if (p.str() == key)
+            return true;
+    }
+    return false;
+}
+
+static void appendDeletedPointUnique(std::vector<SymbolicExpr>& points,
+                                     const SymbolicExpr& point) {
+    if (!containsDeletedPoint(points, point))
+        points.push_back(point);
+}
+
+static std::vector<SymbolicExpr> unionDeletedPoints(const std::vector<SymbolicExpr>& a,
+                                                    const std::vector<SymbolicExpr>& b) {
+    std::vector<SymbolicExpr> merged;
+    merged.reserve(a.size() + b.size());
+    for (const auto& p : a)
+        appendDeletedPointUnique(merged, p);
+    for (const auto& p : b)
+        appendDeletedPointUnique(merged, p);
+    return merged;
 }
 
 // Check if a Value is loop-invariant (lives outside the loop body)
@@ -893,13 +949,16 @@ static SymbolicExpr stepExpr(uint64_t step, SymbolicExprManager& SEM) {
 static SymbolicExpr alignLower(const SymbolicExpr& lower,
                                const SymbolicExpr& anchor,
                                uint64_t step,
-                               SymbolicExprManager& SEM) {
+                               SymbolicExprManager& SEM,
+                               bool useUnsignedCmp = false) {
     auto stepBV = stepExpr(step, SEM);
     auto one = SEM.bvVal(1, 64);
     auto delta = lower - anchor;
     auto ceilQ = (delta + stepBV - one) / stepBV;
     auto aligned = anchor + ceilQ * stepBV;
-    return SymbolicExpr::select(SymbolicExpr::sle(lower, anchor), anchor, aligned);
+    auto le = useUnsignedCmp ? SymbolicExpr::ule(lower, anchor)
+                             : SymbolicExpr::sle(lower, anchor);
+    return SymbolicExpr::select(le, anchor, aligned);
 }
 
 // Largest point of the progression anchor + k*step that is <= upper.
@@ -908,12 +967,15 @@ static SymbolicExpr alignLower(const SymbolicExpr& lower,
 static SymbolicExpr alignUpper(const SymbolicExpr& upper,
                                const SymbolicExpr& anchor,
                                uint64_t step,
-                               SymbolicExprManager& SEM) {
+                               SymbolicExprManager& SEM,
+                               bool useUnsignedCmp = false) {
     auto stepBV = stepExpr(step, SEM);
     auto delta = upper - anchor;
     auto floorQ = delta / stepBV;
     auto aligned = anchor + floorQ * stepBV;
-    return SymbolicExpr::select(SymbolicExpr::sle(anchor, upper), aligned, anchor - stepBV);
+    auto le = useUnsignedCmp ? SymbolicExpr::ule(anchor, upper)
+                             : SymbolicExpr::sle(anchor, upper);
+    return SymbolicExpr::select(le, aligned, anchor - stepBV);
 }
 
 static SymbolicExpr isAlignedToRange(const SymbolicExpr& value,
@@ -929,25 +991,39 @@ static AffineRange applyRC(const AffineRange& R,
                            const RangeCondition& rc,
                            SymbolicExprManager& SEM) {
     auto one = SEM.bvVal(1, 64);
+    auto maxFn = isUnsignedRangeOp(rc.op) ? umax : SymbolicExpr::smax;
+    auto minFn = isUnsignedRangeOp(rc.op) ? umin : smin;
+
+    // llvm::errs() << "DEBUG: applyRC "<< "\n";    
     switch (rc.op) {
-        case RangeOp::LE:
-            return AffineRange(R.s, smin(R.e, rc.v), R.anchor, R.step, R.D);
-        case RangeOp::LT:
-            return AffineRange(R.s, smin(R.e, rc.v - one), R.anchor, R.step, R.D);
-        case RangeOp::GE:
-            return AffineRange(SymbolicExpr::smax(R.s, rc.v), R.e, R.anchor, R.step, R.D);
-        case RangeOp::GT:
-            return AffineRange(SymbolicExpr::smax(R.s, rc.v + one), R.e, R.anchor, R.step, R.D);
+        case RangeOp::SLE:
+        case RangeOp::ULE:
+            // llvm::errs() << "DEBUG: Applying RC: iv <= v, adjusting end from " << R.e.str() << " to min(" << R.e.str() << ", " << rc.v.str() << ")\n";
+            return AffineRange(R.s, minFn(R.e, rc.v), R.anchor, R.step, R.D);
+        case RangeOp::SLT:
+        case RangeOp::ULT:
+            // llvm::errs() << "DEBUG: Applying RC: iv < v, adjusting end from " << R.e.str() << " to min(" << R.e.str() << ", " << (rc.v - one).str() << ")\n";
+            return AffineRange(R.s, minFn(R.e, rc.v - one), R.anchor, R.step, R.D);
+        case RangeOp::SGE:
+        case RangeOp::UGE:
+            // llvm::errs() << "DEBUG: Applying RC: iv >= v, adjusting start from " << R.s.str() << " to max(" << R.s.str() << ", " << rc.v.str() << ")\n";
+            return AffineRange(maxFn(R.s, rc.v), R.e, R.anchor, R.step, R.D);
+        case RangeOp::SGT:
+        case RangeOp::UGT:
+            // llvm::errs() << "DEBUG: Applying RC: iv > v, adjusting start from " << R.s.str() << " to max(" << R.s.str() << ", " << (rc.v + one).str() << ")\n";
+            return AffineRange(maxFn(R.s, rc.v + one), R.e, R.anchor, R.step, R.D);
         case RangeOp::NE: {
+            // llvm::errs() << "DEBUG: Applying RC: iv != v, adjusting range\n";
             auto D2 = R.D;
-            D2.push_back(rc.v);
+            appendDeletedPointUnique(D2, rc.v);
             return AffineRange(R.s, R.e, R.anchor, R.step, std::move(D2));
         }
         case RangeOp::EQ:
+            // llvm::errs() << "DEBUG: Applying RC: iv == v, adjusting range to single point " << rc.v.str() << "\n";
             // F_{iv==v}(R) = range(max(s,v), min(e,v), D)
             // equals range(v,v,D) when v∈[s,e]; s>e (empty) otherwise
-            return AffineRange(SymbolicExpr::smax(R.s, rc.v),
-                               smin(R.e, rc.v), R.anchor, R.step, R.D);
+            return AffineRange(maxFn(R.s, rc.v),
+                               minFn(R.e, rc.v), R.anchor, R.step, R.D);
     }
     return R;
 }
@@ -957,45 +1033,59 @@ static AffineRange applyTerm(const AffineRange& R0,
                              const Term& term,
                              SymbolicExprManager& SEM) {
     AffineRange R = R0;
-    for (const auto& rc : term)
+    // llvm::errs() << "DEBUG: Applying Term with " << term.size() << " RCs\n";
+    for (const auto& rc : term) {
+        // llvm::errs() << "DEBUG: Range before applying RC: " << R.s.str() << " to " << R.e.str() << ", anchor " << R.anchor.str() << ", step " << R.step << ", D size " << R.D.size() << "\n";
         R = applyRC(R, rc, SEM);
+        // llvm::errs() << "DEBUG: Range after applying RC: " << R.s.str() << " to " << R.e.str() << ", anchor " << R.anchor.str() << ", step " << R.step << ", D size " << R.D.size() << "\n";
+    }
     return R;
 }
 
 // len(range(s,e,anchor,step,D)) =
 // max(0, floor((alignedEnd-alignedStart)/step)+1) minus deleted aligned points.
 static SymbolicExpr computeLen(const AffineRange& R,
-                               SymbolicExprManager& SEM) {
+                               SymbolicExprManager& SEM,
+                               bool useUnsignedCmp = false) {
     auto zero = SEM.bvVal(0, 64);
     auto one  = SEM.bvVal(1, 64);
     auto stepBV = stepExpr(R.step, SEM);
-    auto alignedStart = alignLower(R.s, R.anchor, R.step, SEM);
-    auto alignedEnd = alignUpper(R.e, R.anchor, R.step, SEM);
+    auto alignedStart = alignLower(R.s, R.anchor, R.step, SEM, useUnsignedCmp);
+    auto alignedEnd = alignUpper(R.e, R.anchor, R.step, SEM, useUnsignedCmp);
+    auto le = useUnsignedCmp ? SymbolicExpr::ule(alignedStart, alignedEnd)
+                             : SymbolicExpr::sle(alignedStart, alignedEnd);
     // base length: ((alignedEnd-alignedStart)/step)+1 when alignedStart≤alignedEnd, else 0
     auto base = SymbolicExpr::select(
-        SymbolicExpr::sle(alignedStart, alignedEnd),
+        le,
         ((alignedEnd - alignedStart) / stepBV) + one,
         zero);
     // subtract deleted points that lie within [alignedStart, alignedEnd]
     // and are on the same arithmetic progression.
     auto del = zero;
     for (const auto& d : R.D) {
-        auto inRange = SymbolicExpr::sle(alignedStart, d) & SymbolicExpr::sle(d, alignedEnd);
+        auto inRange = useUnsignedCmp
+            ? (SymbolicExpr::ule(alignedStart, d) & SymbolicExpr::ule(d, alignedEnd))
+            : (SymbolicExpr::sle(alignedStart, d) & SymbolicExpr::sle(d, alignedEnd));
         auto aligned = isAlignedToRange(d, R, SEM);
         del = del + SymbolicExpr::select(inRange & aligned, one, zero);
     }
     return base - del;
 }
 
-// Ω(I_i, I_j) = range(max(s_i,s_j), min(e_i,e_j), D_i ∩ D_j)
-// D intersection is left empty (conservative; avoids over-counting overlaps)
+// Ω(I_i, I_j) = range(max(s_i,s_j), min(e_i,e_j), D_i ∪ D_j)
+// For set intersection (I_i ∩ I_j), deleted points are unioned.
 static AffineRange computeOverlap(const AffineRange& a,
                                   const AffineRange& b,
-                                  SymbolicExprManager& SEM) {
-    return AffineRange(SymbolicExpr::smax(a.s, b.s),
-                       smin(a.e, b.e),
+                                  SymbolicExprManager& SEM,
+                                  bool useUnsignedCmp = false) {
+    auto maxFn = useUnsignedCmp ? umax : SymbolicExpr::smax;
+    auto minFn = useUnsignedCmp ? umin : smin;
+    auto overlapD = unionDeletedPoints(a.D, b.D);
+    return AffineRange(maxFn(a.s, b.s),
+                       minFn(a.e, b.e),
                        a.anchor,
-                       a.step);
+                       a.step,
+                       std::move(overlapD));
 }
 
 } // anonymous namespace
@@ -1041,21 +1131,24 @@ optional<pair<SymbolicExpr, SymbolicExpr>> GA::tryAffineTrueRatio(const llvm::Ba
 
         RangeOp op;
         switch (pred) {
-            case llvm::CmpInst::ICMP_SLT: op = RangeOp::LT; break;
-            case llvm::CmpInst::ICMP_ULT: op = RangeOp::LT; break;
-            case llvm::CmpInst::ICMP_SLE: op = RangeOp::LE; break;
-            case llvm::CmpInst::ICMP_ULE: op = RangeOp::LE; break;
-            case llvm::CmpInst::ICMP_SGT: op = RangeOp::GT; break;
-            case llvm::CmpInst::ICMP_UGT: op = RangeOp::GT; break;
-            case llvm::CmpInst::ICMP_SGE: op = RangeOp::GE; break;
-            case llvm::CmpInst::ICMP_UGE: op = RangeOp::GE; break;
+            case llvm::CmpInst::ICMP_SLT: op = RangeOp::SLT; break;
+            case llvm::CmpInst::ICMP_ULT: op = RangeOp::ULT; break;
+            case llvm::CmpInst::ICMP_SLE: op = RangeOp::SLE; break;
+            case llvm::CmpInst::ICMP_ULE: op = RangeOp::ULE; break;
+            case llvm::CmpInst::ICMP_SGT: op = RangeOp::SGT; break;
+            case llvm::CmpInst::ICMP_UGT: op = RangeOp::UGT; break;
+            case llvm::CmpInst::ICMP_SGE: op = RangeOp::SGE; break;
+            case llvm::CmpInst::ICMP_UGE: op = RangeOp::UGE; break;
             case llvm::CmpInst::ICMP_EQ:  op = RangeOp::EQ; break;
             case llvm::CmpInst::ICMP_NE:  op = RangeOp::NE; break;
             default: return std::nullopt;  // unsigned predicates not handled
         }
         auto v = value2Expr(*nonIv);
-        // Normalise to 64-bit signed
-        if      (v.getBitwidth() < 64) v = v.signedExtend(64 - v.getBitwidth());
+        // Normalise to 64-bit using predicate semantics
+        if (v.getBitwidth() < 64) {
+            if (isUnsignedRangeOp(op)) v = v.zeroExtend(64 - v.getBitwidth());
+            else                       v = v.signedExtend(64 - v.getBitwidth());
+        }
         else if (v.getBitwidth() > 64) return std::nullopt;
 
         // llvm::errs() << "DEBUG: getTrueRatio: get range condition " << "\n";
@@ -1108,8 +1201,132 @@ optional<pair<SymbolicExpr, SymbolicExpr>> GA::tryAffineTrueRatio(const llvm::Ba
         return std::nullopt;
     };
 
-    auto ac = parseAC(condVal);
-    if (!ac || ac->empty()) return std::nullopt;
+    auto negateRangeOp = [&](RangeOp op) -> RangeOp {
+        switch (op) {
+            case RangeOp::SLT: return RangeOp::SGE;
+            case RangeOp::SLE: return RangeOp::SGT;
+            case RangeOp::SGT: return RangeOp::SLE;
+            case RangeOp::SGE: return RangeOp::SLT;
+            case RangeOp::ULT: return RangeOp::UGE;
+            case RangeOp::ULE: return RangeOp::UGT;
+            case RangeOp::UGT: return RangeOp::ULE;
+            case RangeOp::UGE: return RangeOp::ULT;
+            case RangeOp::EQ:  return RangeOp::NE;
+            case RangeOp::NE:  return RangeOp::EQ;
+        }
+        return op;
+    };
+
+    auto andAC = [&](const AffineCondition& lhs, const AffineCondition& rhs) -> AffineCondition {
+        if (lhs.empty() || rhs.empty()) return {};
+        AffineCondition out;
+        out.reserve(lhs.size() * rhs.size());
+        for (const auto& lt : lhs)
+            for (const auto& rt : rhs) {
+                Term merged;
+                merged.reserve(lt.size() + rt.size());
+                merged.insert(merged.end(), lt.begin(), lt.end());
+                merged.insert(merged.end(), rt.begin(), rt.end());
+                out.push_back(std::move(merged));
+            }
+        return out;
+    };
+
+    auto orAC = [&](const AffineCondition& lhs, const AffineCondition& rhs) -> AffineCondition {
+        AffineCondition out;
+        out.reserve(lhs.size() + rhs.size());
+        out.insert(out.end(), lhs.begin(), lhs.end());
+        out.insert(out.end(), rhs.begin(), rhs.end());
+        return out;
+    };
+
+    auto negateAC = [&](const AffineCondition& input) -> AffineCondition {
+        if (input.empty()) return AffineCondition{Term{}}; // ¬false = true
+        AffineCondition out{Term{}};                       // true
+        for (const auto& term : input) {
+            if (term.empty()) return AffineCondition{};    // ¬true = false
+            AffineCondition notTerm;
+            notTerm.reserve(term.size());
+            for (const auto& rc : term)
+                notTerm.push_back(Term{RangeCondition{negateRangeOp(rc.op), rc.v}});
+            out = andAC(out, notTerm);
+            if (out.empty()) break;
+        }
+        return out;
+    };
+
+    auto trueAC = AffineCondition{Term{}}; // tautology in DNF
+    auto currentAC = parseAC(condVal);
+    if (!currentAC || currentAC->empty()) return std::nullopt;
+
+    auto edgeAC = [&](const llvm::BasicBlock* from, const llvm::BasicBlock* to) -> AffineCondition {
+        auto* br = llvm::dyn_cast<llvm::BranchInst>(from->getTerminator());
+        if (!br || !br->isConditional() || br->getNumSuccessors() != 2)
+            return trueAC;
+        auto parsed = parseAC(br->getCondition());
+        if (!parsed || parsed->empty())
+            return trueAC;
+        if (br->getSuccessor(0) == to)
+            return *parsed;
+        if (br->getSuccessor(1) == to)
+            return negateAC(*parsed);
+        return trueAC;
+    };
+
+    auto* header = loop->getHeader();
+    if (!header) return std::nullopt;
+
+    AffineCondition pathAC;
+    bool hasPath = false;
+    size_t exploredPaths = 0;
+    constexpr size_t kMaxPaths = 2048;
+    constexpr size_t kMaxTerms = 8192;
+
+    std::function<void(const llvm::BasicBlock*, const AffineCondition&, std::set<const llvm::BasicBlock*>&)> dfs;
+    dfs = [&](const llvm::BasicBlock* node,
+              const AffineCondition& acc,
+              std::set<const llvm::BasicBlock*>& visited) {
+        if (!node || exploredPaths >= kMaxPaths) return;
+        if (node == bb) {
+            hasPath = true;
+            ++exploredPaths;
+            pathAC = pathAC.empty() ? acc : orAC(pathAC, acc);
+            if (pathAC.size() > kMaxTerms) {
+                pathAC.resize(kMaxTerms);
+            }
+            return;
+        }
+
+        for (const auto* succ : llvm::successors(node)) {
+            if (!succ || !loop->contains(const_cast<llvm::BasicBlock*>(succ)))
+                continue;
+            if (visited.count(succ))
+                continue;
+            auto nextAcc = andAC(acc, edgeAC(node, succ));
+            if (nextAcc.empty())
+                continue;
+            if (nextAcc.size() > kMaxTerms)
+                nextAcc.resize(kMaxTerms);
+            visited.insert(succ);
+            dfs(succ, nextAcc, visited);
+            visited.erase(succ);
+            if (exploredPaths >= kMaxPaths)
+                return;
+        }
+    };
+
+    std::set<const llvm::BasicBlock*> visited;
+    visited.insert(header);
+    dfs(header, trueAC, visited);
+
+    auto baseAC = hasPath ? pathAC : trueAC;
+    auto effectiveAC = andAC(baseAC, *currentAC);
+    if (effectiveAC.empty()) {
+        // current condition is unsatisfiable under path constraints
+        effectiveAC = AffineCondition{};
+    }
+
+    auto useUnsignedCmp = hasUnsignedOps(baseAC) || hasUnsignedOps(effectiveAC);
     // llvm::errs() << "DEBUG: getTrueRatio: parsed affine condition with " << ac->size() << " terms\n";
 
     // -------------------------------------------------------
@@ -1133,7 +1350,9 @@ optional<pair<SymbolicExpr, SymbolicExpr>> GA::tryAffineTrueRatio(const llvm::Ba
 
     // Build R0
     auto S = SCEV2Expr(*addRec->getStart());
-    if (S.getBitwidth() < 64) S = S.signedExtend(64 - S.getBitwidth());
+    if (S.getBitwidth() < 64)
+        S = useUnsignedCmp ? S.zeroExtend(64 - S.getBitwidth())
+                           : S.signedExtend(64 - S.getBitwidth());
 
     auto BTC = SCEV2Expr(*btc);
     if (BTC.getBitwidth() < 64) BTC = BTC.zeroExtend(64 - BTC.getBitwidth());
@@ -1148,28 +1367,44 @@ optional<pair<SymbolicExpr, SymbolicExpr>> GA::tryAffineTrueRatio(const llvm::Ba
         ? AffineRange(S, last, S, absStep /*, D={} */)
         : AffineRange(last, S, last, absStep /*, D={} */);
 
+    auto countUnionRanges = [&](const std::vector<AffineRange>& ranges) {
+        auto cnt = SEM.bvVal(0, 64);
+        for (const auto& Ri : ranges)
+            cnt = cnt + computeLen(Ri, SEM, useUnsignedCmp);
+        for (size_t i = 0; i < ranges.size(); ++i)
+            for (size_t j = i + 1; j < ranges.size(); ++j)
+                cnt = cnt - computeLen(computeOverlap(ranges[i], ranges[j], SEM, useUnsignedCmp),
+                                       SEM, useUnsignedCmp);
+        return cnt;
+    };
+
     // -------------------------------------------------------
-    // Apply transfer functions: I_i = F_{T_i}(R0)
+    // Apply transfer functions over path-conditioned base range.
+    // baseAC captures conditions on the path to bb (for denominator),
+    // effectiveAC = baseAC AND currentAC (for numerator).
     // -------------------------------------------------------
+    std::vector<AffineRange> BaseRanges;
+    BaseRanges.reserve(baseAC.size());
+    for (const auto& term : baseAC) {
+        BaseRanges.push_back(applyTerm(R0, term, SEM));
+    }
+
     std::vector<AffineRange> Iranges;
-    Iranges.reserve(ac->size());
-    for (const auto& term : *ac)
-        Iranges.push_back(applyTerm(R0, term, SEM));
+    Iranges.reserve(effectiveAC.size());
+    for (const auto& term : effectiveAC){
+        Iranges.push_back(applyTerm(R0, term, SEM));    
+    }
 
     // -------------------------------------------------------
     // Inclusion-exclusion: trueCount = Σlen(I_i) − Σlen(Ω(I_i,I_j))
     // -------------------------------------------------------
-    auto lenR0     = computeLen(R0, SEM);
-    auto trueCount = SEM.bvVal(0, 64);
-    for (const auto& Ii : Iranges)
-        trueCount = trueCount + computeLen(Ii, SEM);
-    for (size_t i = 0; i < Iranges.size(); ++i)
-        for (size_t j = i + 1; j < Iranges.size(); ++j)
-            trueCount = trueCount -
-                computeLen(computeOverlap(Iranges[i], Iranges[j], SEM), SEM);
+    auto lenR0     = countUnionRanges(BaseRanges);
+    auto trueCount = countUnionRanges(Iranges);
 
     // Return (numerator, denominator) without performing bitvector division.
     // The caller is responsible for combining the two expressions as needed.
+
+    // llvm::errs() << "DEBUG: getTrueRatio: computed affine true count for block " << GraphBuilder::getName(bb) << ": " << trueCount.str() << " out of " << lenR0.str() << "\n";
 
     return make_pair(trueCount, lenR0);
 }
@@ -1187,9 +1422,8 @@ optional<pair<SymbolicExpr, SymbolicExpr>> GA::getTrueRatio(const llvm::BasicBlo
 
     if (isSolvable(term)){
         // denominator = 1 for loop-invariant conditions (exact ratio, no fractional part)
-
-        
         auto cond = inst2Expr(*term); //1-bit vector return
+        // llvm::errs() << "DEBUG: getTrueRatio: Solvable terminator for block " << GraphBuilder::getName(bb) << ": , with condition: " << cond.str() << "\n";
         // llvm::errs() << "DEBUG: getTrueRatio: Solvable terminator for block " << GraphBuilder::getName(bb) << ": " << *term << ", trueCount = " << cond.str() << "\n";
         return make_pair(cond.zeroExtend(63), SEM.bvVal(1, 64));
     }

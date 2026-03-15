@@ -28,6 +28,10 @@ namespace {
 bool isTrueRatioDenName(const std::string& name) {
     return name.rfind("TR_den_", 0) == 0;
 }
+
+bool isSymbolicArgName(const std::string& name) {
+    return name.rfind("TR_", 0) == 0 || name.rfind("LC_", 0) == 0;
+}
 }
 
 // Helper to collect uninterpreted symbols
@@ -52,12 +56,26 @@ std::unique_ptr<llvm::Module> SymbInstance::create(const std::vector<SymbolicExp
     for (const auto& expr : exprs) {
         collectSymbols(expr.z3expr(), symbolSet);
     }
-    std::vector<std::string> inputs(symbolSet.begin(), symbolSet.end());
-    std::sort(inputs.begin(), inputs.end(), 
-    [](const std::string& a, const std::string& b) {
-        if (a.size() != b.size()) return a.size() < b.size();
-        return a < b;
-    });
+    std::vector<std::string> originalInputs;
+    std::vector<std::string> symbolicInputs;
+    originalInputs.reserve(symbolSet.size());
+    symbolicInputs.reserve(symbolSet.size());
+
+    for (const auto& symbol : symbolSet) {
+        if (isSymbolicArgName(symbol)) {
+            symbolicInputs.push_back(symbol);
+        } else {
+            originalInputs.push_back(symbol);
+        }
+    }
+
+    std::sort(originalInputs.begin(), originalInputs.end());
+    std::sort(symbolicInputs.begin(), symbolicInputs.end());
+
+    std::vector<std::string> inputs;
+    inputs.reserve(originalInputs.size() + symbolicInputs.size());
+    inputs.insert(inputs.end(), originalInputs.begin(), originalInputs.end());
+    inputs.insert(inputs.end(), symbolicInputs.begin(), symbolicInputs.end());
 
     // Setup module and context
     llvm::LLVMContext *ctx = nullptr;
