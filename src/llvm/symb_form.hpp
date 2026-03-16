@@ -22,6 +22,7 @@
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <optional>
+#include <chrono>
 
 #include "symb_expr.hpp"
 
@@ -178,10 +179,21 @@ public:
 
 class GraphBuilder{
 public:
+    struct TimingStats {
+        double createProgramMs = 0.0;
+        double createGraphMs = 0.0;
+        double analysisTotalMs = 0.0;
+        double analysisPrepareMs = 0.0;
+        double analysisRefineMs = 0.0;
+    };
+
     llvm::LoopInfo& LI;
     llvm::PostDominatorTree& PDT;
     llvm::ScalarEvolution& SE;
     SymbolicExprManager SEM;
+
+    void setTimingEnabled(bool enabled) { timingEnabled = enabled; }
+    const TimingStats& getTimingStats() const { return timingStats; }
 
     // map basicblock to the twin BasicGraph
     std::map<shared_ptr<BasicGraph>, const llvm::BasicBlock*> graph2bb;
@@ -251,10 +263,27 @@ public:
         std::map<std::pair<const llvm::BasicBlock*, const llvm::BasicBlock*>, SymbolicExpr> baseFactor;
 
         Analysis(llvm::LoopInfo& LI, llvm::ScalarEvolution& SE, SymbolicExprManager& SEM, shared_ptr<Program> P, 
-                std::map<shared_ptr<BasicGraph>, const llvm::BasicBlock *> graph2bb):
+                std::map<shared_ptr<BasicGraph>, const llvm::BasicBlock *> graph2bb,
+                TimingStats* timingStats = nullptr,
+                bool timingEnabled = false):
                 LI(LI), SE(SE), SEM(SEM), P(P), graph2bb(graph2bb){
-            prepareBaseFactor(P);
-            refine(P->G);
+            if (timingEnabled && timingStats) {
+                auto t0 = std::chrono::high_resolution_clock::now();
+                prepareBaseFactor(P);
+                auto t1 = std::chrono::high_resolution_clock::now();
+                refine(P->G);
+                auto t2 = std::chrono::high_resolution_clock::now();
+
+                timingStats->analysisPrepareMs +=
+                    std::chrono::duration<double, std::milli>(t1 - t0).count();
+                timingStats->analysisRefineMs +=
+                    std::chrono::duration<double, std::milli>(t2 - t1).count();
+                timingStats->analysisTotalMs +=
+                    std::chrono::duration<double, std::milli>(t2 - t0).count();
+            } else {
+                prepareBaseFactor(P);
+                refine(P->G);
+            }
         }
 
         // initializing base factors 
@@ -274,6 +303,8 @@ public:
         // replace original string with the expanded one
         void update(shared_ptr<Graph>, const pair<SymbolicExpr, SymbolicExpr>&);
         void update(shared_ptr<BasicGraph>, const pair<SymbolicExpr, SymbolicExpr>&);
+        void update(shared_ptr<Graph>, const vector<SymbolicExpr>&, const vector<SymbolicExpr>&);
+        void update(shared_ptr<BasicGraph>, const vector<SymbolicExpr>&, const vector<SymbolicExpr>&);
 
         // data flow tracking
         optional<SymbolicExpr> getLoopCount(llvm::Loop* loop);
@@ -332,6 +363,10 @@ public:
     // debug tracking
     int numComposite = 0; 
     set<shared_ptr<BasicGraph>> earlyExits;
+
+private:
+    bool timingEnabled = false;
+    TimingStats timingStats;
 };
 
 class GraphViewer{

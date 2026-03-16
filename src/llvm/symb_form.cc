@@ -92,6 +92,7 @@ void GraphBuilder::addFlow(shared_ptr<BasicGraph> BG, shared_ptr<BasicGraph> toA
 }
 
 shared_ptr<Program> GraphBuilder::createProgram(llvm::Function * F){
+    auto t_program_start = std::chrono::high_resolution_clock::now();
 
     auto args = F->arg_begin();
     auto argList = std::vector<SymbolicExpr>();
@@ -100,9 +101,22 @@ shared_ptr<Program> GraphBuilder::createProgram(llvm::Function * F){
         argList.emplace_back(SEM.bvValue(*args));
     }
 
+    auto t_graph_start = std::chrono::high_resolution_clock::now();
     auto graph = createGraph(SEM.one(), &F->getEntryBlock());
+    auto t_graph_end = std::chrono::high_resolution_clock::now();
+    if (timingEnabled) {
+        timingStats.createGraphMs +=
+            std::chrono::duration<double, std::milli>(t_graph_end - t_graph_start).count();
+    }
+
     auto P = std::make_shared<Program>(Program(argList, graph));
-    Analysis a(LI, SE, SEM, P, graph2bb);
+    Analysis a(LI, SE, SEM, P, graph2bb, &timingStats, timingEnabled);
+
+    auto t_program_end = std::chrono::high_resolution_clock::now();
+    if (timingEnabled) {
+        timingStats.createProgramMs +=
+            std::chrono::duration<double, std::milli>(t_program_end - t_program_start).count();
+    }
 
     // debug tracking
     numComposite = a.compositePHIs.size();
@@ -776,8 +790,15 @@ void GA::refine(shared_ptr<BasicGraph> BG){
             refine(branch->G2);
             if(auto TRexpanded = getTrueRatio(graph2bb[branch])){
                 auto [trNum, trDen] = TRexpanded.value();
-                update(branch, make_pair(branch->trueRatioNum, trNum));
-                update(branch, make_pair(branch->trueRatioDen, trDen));
+                vector<SymbolicExpr> originals;
+                vector<SymbolicExpr> withs;
+                originals.reserve(2);
+                withs.reserve(2);
+                originals.emplace_back(branch->trueRatioNum);
+                withs.emplace_back(std::move(trNum));
+                originals.emplace_back(branch->trueRatioDen);
+                withs.emplace_back(std::move(trDen));
+                update(branch, originals, withs);
             }
             break;
         }
@@ -786,7 +807,13 @@ void GA::refine(shared_ptr<BasicGraph> BG){
             refine(loop->head);
             refine(loop->Gb);
             if(auto LCexpanded = getLoopCount(LI.getLoopFor(graph2bb[loop]))){
-                update(loop, make_pair(loop->loopCount, LCexpanded.value()));
+                vector<SymbolicExpr> originals;
+                vector<SymbolicExpr> withs;
+                originals.reserve(1);
+                withs.reserve(1);
+                originals.emplace_back(loop->loopCount);
+                withs.emplace_back(LCexpanded.value());
+                update(loop, originals, withs);
             }
             break;
         }
@@ -834,6 +861,51 @@ void GA::update(shared_ptr<BasicGraph> BG, const pair<SymbolicExpr, SymbolicExpr
         }
         case GraphType::Unknown:
             // Do nothing for unknown graph type
+            break;
+    }
+}
+
+void GA::update(shared_ptr<Graph> G, const vector<SymbolicExpr>& originals, const vector<SymbolicExpr>& withs){
+    if(!G) return;
+
+    update(G->BG, originals, withs);
+    update(G->G, originals, withs);
+}
+
+void GA::update(shared_ptr<BasicGraph> BG, const vector<SymbolicExpr>& originals, const vector<SymbolicExpr>& withs){
+    if(!BG) return;
+    if (originals.size() != withs.size()) return;
+
+    for (size_t i = 0; i < originals.size(); ++i) {
+        BG->count.substitute(originals[i], withs[i]);
+    }
+    BG->count.simplify();
+
+    switch (BG->getGraphType()) {
+        case GraphType::BasicBlock:
+            break;
+        case GraphType::Branch: {
+            auto branch = std::static_pointer_cast<Branch>(BG);
+            for (size_t i = 0; i < originals.size(); ++i) {
+                branch->trueRatioNum.substitute(originals[i], withs[i]);
+                branch->trueRatioDen.substitute(originals[i], withs[i]);
+                branch->falseRatioNum.substitute(originals[i], withs[i]);
+                branch->falseRatioDen.substitute(originals[i], withs[i]);
+            }
+            update(branch->G1, originals, withs);
+            update(branch->G2, originals, withs);
+            break;
+        }
+        case GraphType::Loop: {
+            auto loop = std::static_pointer_cast<Loop>(BG);
+            for (size_t i = 0; i < originals.size(); ++i) {
+                loop->loopCount.substitute(originals[i], withs[i]);
+            }
+            update(loop->head, originals, withs);
+            update(loop->Gb, originals, withs);
+            break;
+        }
+        case GraphType::Unknown:
             break;
     }
 }

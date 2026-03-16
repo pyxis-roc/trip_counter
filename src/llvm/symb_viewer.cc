@@ -115,18 +115,28 @@ int main(int argc, char **argv) {
     }
 
     auto t_start = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> t_cli{0}, t_ir_parse{0}, t_pass_setup{0}, t_fpm_run{0};
+    std::chrono::duration<double> t_analysis_fetch{0}, t_create_program{0};
+    std::chrono::duration<double> t_formula_output{0}, t_instance_output{0}, t_characterize{0};
 
     InitLLVM X(argc, argv);
+    auto t_cli_start = std::chrono::high_resolution_clock::now();
     cl::ParseCommandLineOptions(argc, argv, "LLVM IR Loop/PDom/SE Analysis\n");
+    auto t_cli_end = std::chrono::high_resolution_clock::now();
+    t_cli = t_cli_end - t_cli_start;
 
     LLVMContext Context;
     SMDiagnostic Err;
+    auto t_ir_start = std::chrono::high_resolution_clock::now();
     std::unique_ptr<Module> M = parseIRFile(InputFilename, Err, Context);
+    auto t_ir_end = std::chrono::high_resolution_clock::now();
+    t_ir_parse = t_ir_end - t_ir_start;
     if (!M) {
         Err.print(argv[0], errs());
         return 1;
     }
 
+    auto t_pass_setup_start = std::chrono::high_resolution_clock::now();
     PassBuilder PB;
     LoopAnalysisManager LAM;
     FunctionAnalysisManager FAM;
@@ -143,6 +153,8 @@ int main(int argc, char **argv) {
     FAM.registerPass([&] { return ScalarEvolutionAnalysis(); });
     FAM.registerPass([&] { return LoopAnalysis(); });
     FAM.registerPass([&] { return PostDominatorTreeAnalysis(); });
+    auto t_pass_setup_end = std::chrono::high_resolution_clock::now();
+    t_pass_setup = t_pass_setup_end - t_pass_setup_start;
 
     // FPM.addPass(PromotePass());
 
@@ -152,9 +164,13 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    auto t_fpm_start = std::chrono::high_resolution_clock::now();
     FPM.run(*TargetFunc, FAM);
+    auto t_fpm_end = std::chrono::high_resolution_clock::now();
+    t_fpm_run = t_fpm_end - t_fpm_start;
 
     // Loop Analysis
+    auto t_fetch_start = std::chrono::high_resolution_clock::now();
     auto &LI = FAM.getResult<LoopAnalysis>(*TargetFunc);
 
     // ScalarEvolution Analysis
@@ -162,10 +178,16 @@ int main(int argc, char **argv) {
     
     // Post Dominator Analysis
     auto &PDT = FAM.getResult<PostDominatorTreeAnalysis>(*TargetFunc);
+    auto t_fetch_end = std::chrono::high_resolution_clock::now();
+    t_analysis_fetch = t_fetch_end - t_fetch_start;
 
     // build symbolic form for the function
     auto GB = GraphBuilder(LI, PDT, SE);
+    GB.setTimingEnabled(Time);
+    auto t_program_start = std::chrono::high_resolution_clock::now();
     auto program = GB.createProgram(TargetFunc);
+    auto t_program_end = std::chrono::high_resolution_clock::now();
+    t_create_program = t_program_end - t_program_start;
     if (!program) {
         errs() << "Failed to create program from function: " << FunctionName << "\n";
         return 1;
@@ -233,17 +255,21 @@ int main(int argc, char **argv) {
 
     // Show symbolic formula (formula subcommand only)
     if (formulaMode) {
+        auto t_formula_start = std::chrono::high_resolution_clock::now();
         if (!OutputJsonFilename.empty()) {
             std::ofstream jsonOut(OutputJsonFilename);
             GraphViewer::showAllBasicGraphsAsJson(program, jsonOut);
         } else if (!Quiet) {
             GraphViewer::showProgram(program);
         }
+        auto t_formula_end = std::chrono::high_resolution_clock::now();
+        t_formula_output = t_formula_end - t_formula_start;
     }
 
     auto t_end = std::chrono::high_resolution_clock::now();
 
     if (instanceMode || kernelMode) {
+        auto t_instance_start = std::chrono::high_resolution_clock::now();
         SymbInstance instance;
         std::vector<SymbolicExpr> exprs; // Populate this with symbolic expressions
         std::vector<std::string> basicBlockNames; // Populate this with basic block names
@@ -275,11 +301,41 @@ int main(int argc, char **argv) {
         );
         llvm::errs() << "Generated symbolic instance module.\n";
         module->print(llvm::outs(), nullptr);
+        auto t_instance_end = std::chrono::high_resolution_clock::now();
+        t_instance_output = t_instance_end - t_instance_start;
     }
 
     if (Time) {
+        const auto graphTiming = GB.getTimingStats();
         llvm::outs() << "Total time: " 
                      << std::chrono::duration<double, std::milli>(t_end - t_start).count() << "ms\n";
+        llvm::outs() << "Workflow timing breakdown:\n";
+        llvm::outs() << "  - CLI parse time: "
+                     << std::chrono::duration<double, std::milli>(t_cli).count() << "ms\n";
+        llvm::outs() << "  - IR parse time: "
+                     << std::chrono::duration<double, std::milli>(t_ir_parse).count() << "ms\n";
+        llvm::outs() << "  - Pass setup time: "
+                     << std::chrono::duration<double, std::milli>(t_pass_setup).count() << "ms\n";
+        llvm::outs() << "  - Function pass run time: "
+                     << std::chrono::duration<double, std::milli>(t_fpm_run).count() << "ms\n";
+        llvm::outs() << "  - Analysis fetch time (LI/SE/PDT): "
+                     << std::chrono::duration<double, std::milli>(t_analysis_fetch).count() << "ms\n";
+        llvm::outs() << "  - Program build time: "
+                     << std::chrono::duration<double, std::milli>(t_create_program).count() << "ms\n";
+        llvm::outs() << "    - createGraph time: " << graphTiming.createGraphMs << "ms\n";
+        llvm::outs() << "    - analysis prepareBaseFactor time: " << graphTiming.analysisPrepareMs << "ms\n";
+        llvm::outs() << "    - analysis refine time: " << graphTiming.analysisRefineMs << "ms\n";
+        llvm::outs() << "    - analysis total time: " << graphTiming.analysisTotalMs << "ms\n";
+        llvm::outs() << "    - createProgram total time: " << graphTiming.createProgramMs << "ms\n";
+
+        if (formulaMode) {
+            llvm::outs() << "  - Formula output time: "
+                         << std::chrono::duration<double, std::milli>(t_formula_output).count() << "ms\n";
+        }
+        if (instanceMode || kernelMode) {
+            llvm::outs() << "  - Instance/kernel generation time: "
+                         << std::chrono::duration<double, std::milli>(t_instance_output).count() << "ms\n";
+        }
         if (formulaMode && !SubstitutionFile.empty()) {
             llvm::outs() << "Substitution time: " 
                          << std::chrono::duration<double, std::milli>(t_subs).count() << "ms\n";
@@ -294,11 +350,19 @@ int main(int argc, char **argv) {
 
     // Perform program characterization (characterize subcommand)
     if (characterizeMode) {
+        auto t_characterize_start = std::chrono::high_resolution_clock::now();
         analyzeModule(M, *TargetFunc);
         llvm::outs() << "Number of symbolic loop counts: " << GB.SEM.loopCountNames.size() << "\n";
         llvm::outs() << "Number of symbolic true ratios: " << GB.SEM.trueRatioNames.size() << "\n";
         llvm::outs() << "Number of early exits: " << GB.earlyExits.size()/2 << "\n";
         llvm::outs() << "Number of composite symbolic expressions: " << GB.numComposite << "\n";
+        auto t_characterize_end = std::chrono::high_resolution_clock::now();
+        t_characterize = t_characterize_end - t_characterize_start;
+
+        if (Time) {
+            llvm::outs() << "  - Characterization time: "
+                         << std::chrono::duration<double, std::milli>(t_characterize).count() << "ms\n";
+        }
     }
 
     return 0;
