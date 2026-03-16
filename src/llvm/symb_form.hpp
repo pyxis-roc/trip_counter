@@ -54,7 +54,7 @@ public:
     shared_ptr<Graph> G;
 
     Program(vector<SymbolicExpr> inputs, shared_ptr<Graph> G)
-        : inputs(inputs), G(G) {}
+        : inputs(std::move(inputs)), G(std::move(G)) {}
         
 };
 
@@ -76,11 +76,11 @@ public:
     shared_ptr<Graph> G;
 
     Graph(std::string id, std::shared_ptr<BasicGraph> BG, std::shared_ptr<Graph> G)
-        : id(id), BG(BG), G(G) {}
+        : id(std::move(id)), BG(std::move(BG)), G(std::move(G)) {}
     Graph(std::string id, std::shared_ptr<BasicGraph> BG)
-        : id(id), BG(BG), G(nullptr) {}
+        : id(std::move(id)), BG(std::move(BG)), G(nullptr) {}
     Graph(std::string id)
-        : id(id), BG(nullptr), G(nullptr) {}
+        : id(std::move(id)), BG(nullptr), G(nullptr) {}
     
 };
 
@@ -103,7 +103,7 @@ public:
     SymbolicExpr count;
 
     BasicGraph(std::string id, std::string name, SymbolicExpr count)
-        : id(id), name(name), count(count) {}
+        : id(std::move(id)), name(std::move(name)), count(std::move(count)) {}
 
     // subclass type check
     virtual GraphType getGraphType() const{
@@ -140,12 +140,12 @@ public:
             shared_ptr<Graph> G1, 
             std::shared_ptr<Graph> G2): 
         BasicGraph(BG->id, BG->name, BG->count), 
-        trueRatioNum(trueRatioNum),
-        trueRatioDen(trueRatioDen),
-        falseRatioNum(falseRatioNum),
-        falseRatioDen(falseRatioDen),
-        G1(G1),
-        G2(G2){}
+        trueRatioNum(std::move(trueRatioNum)),
+        trueRatioDen(std::move(trueRatioDen)),
+        falseRatioNum(std::move(falseRatioNum)),
+        falseRatioDen(std::move(falseRatioDen)),
+        G1(std::move(G1)),
+        G2(std::move(G2)){}
     
     GraphType getGraphType() const override {
         return GraphType::Branch;
@@ -161,9 +161,9 @@ public:
     Loop(shared_ptr<BasicGraph> BG, SymbolicExpr loopCount, shared_ptr<BasicGraph> head, 
             shared_ptr<Graph> Gb): 
         BasicGraph(BG->id, BG->name, BG->count), 
-        loopCount(loopCount), 
-        head(head),
-        Gb(Gb) {}
+        loopCount(std::move(loopCount)), 
+        head(std::move(head)),
+        Gb(std::move(Gb)) {}
     
     GraphType getGraphType() const override {
         return GraphType::Loop;
@@ -272,8 +272,8 @@ public:
         void refine(shared_ptr<BasicGraph>);
 
         // replace original string with the expanded one
-        void update(shared_ptr<Graph>, pair<SymbolicExpr, SymbolicExpr>);
-        void update(shared_ptr<BasicGraph>, pair<SymbolicExpr, SymbolicExpr>);
+        void update(shared_ptr<Graph>, const pair<SymbolicExpr, SymbolicExpr>&);
+        void update(shared_ptr<BasicGraph>, const pair<SymbolicExpr, SymbolicExpr>&);
 
         // data flow tracking
         optional<SymbolicExpr> getLoopCount(llvm::Loop* loop);

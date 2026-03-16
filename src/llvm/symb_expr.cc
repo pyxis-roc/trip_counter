@@ -1,5 +1,8 @@
 #include <optional>
 #include <string>
+#include <atomic>
+#include <cstdint>
+#include <memory>
 #include "symb_expr.hpp"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/IR/Instruction.h"
@@ -17,18 +20,27 @@ namespace {
     std::unordered_map<const llvm::Instruction*, SymbolicExpr> instExprCache;
     std::unordered_map<const llvm::Value*, SymbolicExpr> valueExprCache;
     std::unordered_map<const llvm::SCEV*, SymbolicExpr> scevExprCache;
-    std::unordered_map<std::string, SymbolicExpr> rawExprCache;
+    std::unordered_map<std::string, std::shared_ptr<SymbolicExpr>> rawExprCache;
+
+    std::atomic<std::uint64_t> symbolicExprCreatedCount{0};
+    std::atomic<bool> symbolicExprCountReported{false};
 }
 
 // Constructors
 SymbolicExpr::SymbolicExpr(z3::context& ctx, const z3::expr& expr)
-    : ctx_(ctx), expr_(expr) {}
+    : ctx_(ctx), expr_(expr) {
+    symbolicExprCreatedCount.fetch_add(1, std::memory_order_relaxed);
+}
 
 // Copy/move
 SymbolicExpr::SymbolicExpr(const SymbolicExpr& other)
-    : ctx_(other.ctx_), expr_(other.expr_) {}
+    : ctx_(other.ctx_), expr_(other.expr_) {
+    symbolicExprCreatedCount.fetch_add(1, std::memory_order_relaxed);
+}
 SymbolicExpr::SymbolicExpr(SymbolicExpr&& other) noexcept
-    : ctx_(other.ctx_), expr_(std::move(other.expr_)) {}
+    : ctx_(other.ctx_), expr_(std::move(other.expr_)) {
+    symbolicExprCreatedCount.fetch_add(1, std::memory_order_relaxed);
+}
 
 SymbolicExpr& SymbolicExpr::operator=(const SymbolicExpr& other) {
     if (this != &other) {
@@ -233,7 +245,13 @@ const z3::expr& SymbolicExpr::z3expr() const {
 
 // SymbolicExprManager implementation
 SymbolicExprManager::SymbolicExprManager() : ctx_() {}
-SymbolicExprManager::~SymbolicExprManager() {}
+SymbolicExprManager::~SymbolicExprManager() {
+    if (!symbolicExprCountReported.exchange(true, std::memory_order_relaxed)) {
+        llvm::errs() << "[symb-expr-debug] Total SymbolicExpr objects created: "
+                     << symbolicExprCreatedCount.load(std::memory_order_relaxed)
+                     << "\n";
+    }
+}
 
 z3::context& SymbolicExprManager::context() {
     return ctx_;
@@ -277,25 +295,33 @@ SymbolicExpr SymbolicExprManager::named(const std::string& name) {
 }
 
 SymbolicExpr SymbolicExprManager::named32(const std::string& name) {
-    auto it = rawExprCache.find(name);
-    if (it != rawExprCache.end()) {
-        return it->second;
-    }
-    auto expr = SymbolicExpr(ctx_, ctx_.bv_const(name.c_str(), 32));
-    rawExprCache.emplace(name, expr);
-    totalExprCount++;
-    return expr;
+    return named32Ref(name);
 }
 
 SymbolicExpr SymbolicExprManager::named64(const std::string& name) {
+    return named64Ref(name);
+}
+
+const SymbolicExpr& SymbolicExprManager::named32Ref(const std::string& name) {
     auto it = rawExprCache.find(name);
     if (it != rawExprCache.end()) {
-        return it->second;
+        return *(it->second);
     }
-    auto expr = SymbolicExpr(ctx_, ctx_.bv_const(name.c_str(), 64));
-    rawExprCache.emplace(name, expr);
+    auto expr = std::make_shared<SymbolicExpr>(ctx_, ctx_.bv_const(name.c_str(), 32));
+    auto [inserted, _] = rawExprCache.emplace(name, std::move(expr));
     totalExprCount++;
-    return expr;
+    return *(inserted->second);
+}
+
+const SymbolicExpr& SymbolicExprManager::named64Ref(const std::string& name) {
+    auto it = rawExprCache.find(name);
+    if (it != rawExprCache.end()) {
+        return *(it->second);
+    }
+    auto expr = std::make_shared<SymbolicExpr>(ctx_, ctx_.bv_const(name.c_str(), 64));
+    auto [inserted, _] = rawExprCache.emplace(name, std::move(expr));
+    totalExprCount++;
+    return *(inserted->second);
 }
 
 SymbolicExpr SymbolicExprManager::intVal(int val) {
@@ -324,27 +350,43 @@ SymbolicExpr SymbolicExprManager::bvVal(uint64_t val, unsigned bitwidth) {
 }
 
 SymbolicExpr SymbolicExprManager::bvNamed(const std::string& name, unsigned bitwidth) {
+    return bvNamedRef(name, bitwidth);
+}
+
+const SymbolicExpr& SymbolicExprManager::bvNamedRef(const std::string& name, unsigned bitwidth) {
     auto it = rawExprCache.find(name);
     if (it != rawExprCache.end()) {
-        return it->second;
+        return *(it->second);
     }
-    auto expr = SymbolicExpr(ctx_, ctx_.bv_const(name.c_str(), bitwidth));
-    rawExprCache.emplace(name, expr);
-    return expr;
+    auto expr = std::make_shared<SymbolicExpr>(ctx_, ctx_.bv_const(name.c_str(), bitwidth));
+    auto [inserted, _] = rawExprCache.emplace(name, std::move(expr));
+    return *(inserted->second);
 }
 
 SymbolicExpr SymbolicExprManager::symbTrueRatio(const std::string& name) {
+    return symbTrueRatioRef(name);
+}
+
+const SymbolicExpr& SymbolicExprManager::symbTrueRatioRef(const std::string& name) {
     trueRatioNames.insert(name);
-    return named(name);
+    return named64Ref(name);
 }
 
 SymbolicExpr SymbolicExprManager::symbLoopCount(const std::string& name) {
+    return symbLoopCountRef(name);
+}
+
+const SymbolicExpr& SymbolicExprManager::symbLoopCountRef(const std::string& name) {
     loopCountNames.insert(name);
-    return named(name);
+    return named64Ref(name);
 }
 
 SymbolicExpr SymbolicExprManager::symbUnknown(const std::string& name) {
-    return named(name);
+    return symbUnknownRef(name);
+}
+
+const SymbolicExpr& SymbolicExprManager::symbUnknownRef(const std::string& name) {
+    return named64Ref(name);
 }
 
 SymbolicExpr SymbolicExprManager::bvInst(const llvm::Instruction& I) {
@@ -374,7 +416,7 @@ SymbolicExpr SymbolicExprManager::bvInst(const llvm::Instruction& I) {
         llvm::errs() << "Warning: Instruction " << name << "with type" << I.getType() << " has zero bitwidth, defaulting to 64 bits\n";
         bitwidth = 64;
     }
-    SymbolicExpr expr = bvNamed(name, bitwidth);
+    SymbolicExpr expr = bvNamedRef(name, bitwidth);
     instExprCache.emplace(&I, expr);
     return expr;
 }
@@ -397,7 +439,7 @@ SymbolicExpr SymbolicExprManager::bvValue(const llvm::Value& V) {
         llvm::errs() << "Warning: Value " << name << " has zero bitwidth, defaulting to 64 bits\n";
         bitwidth = 64;
     }
-    SymbolicExpr expr = bvNamed(name, bitwidth);
+    SymbolicExpr expr = bvNamedRef(name, bitwidth);
     valueExprCache.emplace(&V, expr);
     return expr;
 }
@@ -415,7 +457,7 @@ SymbolicExpr SymbolicExprManager::bvSCEV(const llvm::SCEV& scev) {
         llvm::errs() << "Warning: SCEV " << name << " has zero bitwidth, defaulting to 64 bits\n";
         bitwidth = 64;
     }
-    SymbolicExpr expr = bvNamed(name, bitwidth);
+    SymbolicExpr expr = bvNamedRef(name, bitwidth);
     scevExprCache.emplace(&scev, expr);
     return expr;
 }
@@ -456,7 +498,7 @@ std::vector<SymbolicExpr> SymbolicExprManager::getAllProgramExpr() const {
         allExprs.push_back(pair.second);
     }
     for (const auto& pair : rawExprCache) {
-        allExprs.push_back(pair.second);
+        allExprs.push_back(*(pair.second));
     }
     return allExprs;
 }

@@ -95,9 +95,9 @@ shared_ptr<Program> GraphBuilder::createProgram(llvm::Function * F){
 
     auto args = F->arg_begin();
     auto argList = std::vector<SymbolicExpr>();
+    argList.reserve(F->arg_size());
     for (; args != F->arg_end(); ++args) {
-        auto symbol = SEM.bvValue(*args);
-        argList.push_back(symbol);
+        argList.emplace_back(SEM.bvValue(*args));
     }
 
     auto graph = createGraph(SEM.one(), &F->getEntryBlock());
@@ -360,16 +360,20 @@ shared_ptr<Branch> GraphBuilder::createBranch(std::shared_ptr<BasicGraph> BG,
     // to avoid bitvector integer division truncation.
     auto trNum_literal = "TR_num_" + getName(startBB);
     auto trDen_literal = "TR_den_" + getName(startBB);
-    auto trueRatioNum = SEM.symbTrueRatio(trNum_literal);
-    auto trueRatioDen = SEM.symbTrueRatio(trDen_literal);
+    const auto& trueRatioNumRef = SEM.symbTrueRatioRef(trNum_literal);
+    const auto& trueRatioDenRef = SEM.symbTrueRatioRef(trDen_literal);
+    SymbolicExpr trueRatioNum = trueRatioNumRef;
+    SymbolicExpr trueRatioDen = trueRatioDenRef;
     auto falseRatioNum = trueRatioDen - trueRatioNum;
     auto falseRatioDen = trueRatioDen;
 
-    auto incoming_count = BG->count;
+    const auto& incoming_count = BG->count;
     auto trueSide = startBB->getTerminator()->getSuccessor(0);
     auto falseSide = startBB->getTerminator()->getSuccessor(1);
-    auto G1 = createGraph((trueRatioNum * incoming_count) / trueRatioDen, trueSide, endBB);
-    auto G2 = createGraph((falseRatioNum * incoming_count) / falseRatioDen, falseSide, endBB);
+    auto trueCount = (trueRatioNum * incoming_count) / trueRatioDen;
+    auto falseCount = (falseRatioNum * incoming_count) / falseRatioDen;
+    auto G1 = createGraph(std::move(trueCount), trueSide, endBB);
+    auto G2 = createGraph(std::move(falseCount), falseSide, endBB);
 
     auto graph = make_shared<Branch>(
         Branch(
@@ -516,16 +520,17 @@ shared_ptr<Loop> GraphBuilder::createLoop(std::shared_ptr<BasicGraph> BG,
         return nullptr;
     }
 
-    auto incoming_count = BG->count;
-    auto bodyCount = SEM.symbLoopCount("LC_" + getName(loop));
+    const auto& incoming_count = BG->count;
+    const auto& bodyCountRef = SEM.symbLoopCountRef("LC_" + getName(loop));
+    SymbolicExpr bodyCount = bodyCountRef;
 
     auto headGraph = getLoopHeadGraph(incoming_count, bodyCount, startBB, exitBlock);
     auto headType = headGraph->getGraphType();
 
     auto bodyStart = nextGraphHead(headType, startBB);
     auto bodyEnd = isHeaderExiting(loop) ? startBB : exitBlock;
-    auto Gb = createGraph(bodyCount * incoming_count, 
-    bodyStart, bodyEnd);
+    auto loopBodyIncoming = bodyCount * incoming_count;
+    auto Gb = createGraph(std::move(loopBodyIncoming), bodyStart, bodyEnd);
     
     auto graph = make_shared<Loop>(
         Loop(
@@ -665,7 +670,7 @@ optional<SymbolicExpr> GA::getFactor(const llvm::BasicBlock* from, const llvm::B
 
 void GA::addFactor(const llvm::BasicBlock* from, const llvm::BasicBlock* to, SymbolicExpr factor){
     auto p = make_pair(from, to);
-    baseFactor.emplace(p, factor);
+    baseFactor.emplace(p, std::move(factor));
 }
 
 // returns all the basic graphs at the end of current graph,
@@ -710,7 +715,7 @@ vector<shared_ptr<BasicGraph>> GA::traverse(shared_ptr<BasicGraph> BG){
 
     switch (BG->getGraphType()) {
         case GraphType::BasicBlock:
-            last.push_back(BG);
+            last.emplace_back(BG);
             return last;
         case GraphType::Branch: {
             auto branch = std::static_pointer_cast<Branch>(BG);
@@ -729,7 +734,7 @@ vector<shared_ptr<BasicGraph>> GA::traverse(shared_ptr<BasicGraph> BG){
             }
             if (!branch->G1 || !branch->G2){
                 // both branches are null, return the branch itself as last
-                last.push_back(BG);
+                last.emplace_back(BG);
             }
 
             return last;
@@ -791,18 +796,18 @@ void GA::refine(shared_ptr<BasicGraph> BG){
     }
 }
 
-void GA::update(shared_ptr<Graph> G, pair<SymbolicExpr, SymbolicExpr> subs){
+void GA::update(shared_ptr<Graph> G, const pair<SymbolicExpr, SymbolicExpr>& subs){
     if(!G) return;
 
     update(G->BG, subs);
     update(G->G, subs);
 }
 
-void GA::update(shared_ptr<BasicGraph> BG, pair<SymbolicExpr, SymbolicExpr> subs){
+void GA::update(shared_ptr<BasicGraph> BG, const pair<SymbolicExpr, SymbolicExpr>& subs){
     if(! BG) return;
 
-    auto original = subs.first;
-    auto updated = subs.second;
+    const auto& original = subs.first;
+    const auto& updated = subs.second;
 
     BG->count.substitute(original, updated);
     BG->count.simplify();
@@ -914,7 +919,7 @@ static bool containsDeletedPoint(const std::vector<SymbolicExpr>& points,
 static void appendDeletedPointUnique(std::vector<SymbolicExpr>& points,
                                      const SymbolicExpr& point) {
     if (!containsDeletedPoint(points, point))
-        points.push_back(point);
+    points.emplace_back(point);
 }
 
 static std::vector<SymbolicExpr> unionDeletedPoints(const std::vector<SymbolicExpr>& a,
@@ -1407,13 +1412,13 @@ optional<pair<SymbolicExpr, SymbolicExpr>> GA::tryAffineTrueRatio(const llvm::Ba
         std::vector<AffineRange> BaseRanges;
         BaseRanges.reserve(baseAC.size());
         for (const auto& term : baseAC) {
-            BaseRanges.push_back(applyTerm(R0, term, SEM));
+            BaseRanges.emplace_back(applyTerm(R0, term, SEM));
         }
 
         std::vector<AffineRange> Iranges;
         Iranges.reserve(effectiveAC.size());
         for (const auto& term : effectiveAC){
-            Iranges.push_back(applyTerm(R0, term, SEM));    
+            Iranges.emplace_back(applyTerm(R0, term, SEM));    
         }
 
     // -------------------------------------------------------

@@ -108,17 +108,23 @@ public:
 
     SymbolicExpr bvVal(uint64_t val, unsigned bitwidth);
     SymbolicExpr bvNamed(const std::string& name, unsigned bitwidth);
+    const SymbolicExpr& bvNamedRef(const std::string& name, unsigned bitwidth);
 
     // Static API for named symbol
     SymbolicExpr named(const std::string& name);
     SymbolicExpr named32(const std::string& name);
     SymbolicExpr named64(const std::string& name);
+    const SymbolicExpr& named32Ref(const std::string& name);
+    const SymbolicExpr& named64Ref(const std::string& name);
 
     
     // Helper function for analysis related construction
     SymbolicExpr symbTrueRatio(const std::string& name);
     SymbolicExpr symbLoopCount(const std::string& name);
     SymbolicExpr symbUnknown(const std::string& name);
+    const SymbolicExpr& symbTrueRatioRef(const std::string& name);
+    const SymbolicExpr& symbLoopCountRef(const std::string& name);
+    const SymbolicExpr& symbUnknownRef(const std::string& name);
     SymbolicExpr bvInst(const llvm::Instruction& I);
     SymbolicExpr bvValue(const llvm::Value& V);
     SymbolicExpr bvSCEV(const llvm::SCEV& scev);
