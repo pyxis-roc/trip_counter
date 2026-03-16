@@ -1750,17 +1750,8 @@ SymbolicExpr GA::inst2Expr(const llvm::Instruction& I) {
                     else{
                         sum = sum + baseFactor.value() * value2Expr(*incomingVal);
                     }
-                    llvm::errs() << "Debug: inst2Expr PHI: Adding contribution from edge " 
-                                 << GraphBuilder::getName(incomingBB) << " to "
-                                 << GraphBuilder::getName(currentBB) << ": factor = " << baseFactor.value().str() 
-                                 << ", incoming value = ";
-                        incomingVal->print(llvm::errs(), false);
-                        llvm::errs() << "\n";
                     total_factor = total_factor + baseFactor.value();
                 } else {
-                    llvm::errs() << "Warning: inst2Expr PHI: No base factor found for edge from "
-                                 << GraphBuilder::getName(incomingBB) << " to "
-                                 << GraphBuilder::getName(currentBB) << "\n";
                     return SEM.bvInst(I);
                 }
             }
