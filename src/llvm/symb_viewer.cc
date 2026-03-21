@@ -23,6 +23,8 @@
 #include <memory>
 #include <fstream>
 #include <chrono>
+#include <algorithm>
+#include <vector>
 
 #include "llvm/Transforms/Utils/Mem2Reg.h"
 
@@ -323,6 +325,56 @@ int main(int argc, char **argv) {
         llvm::outs() << "  - Program build time: "
                      << std::chrono::duration<double, std::milli>(t_create_program).count() << "ms\n";
         llvm::outs() << "    - createGraph time: " << graphTiming.createGraphMs << "ms\n";
+        llvm::outs() << "      - detailed component self-time (non-overlapping):\n";
+        llvm::outs() << "        - createGraph frame self-time: " << graphTiming.createGraphFrameMs << "ms\n";
+        llvm::outs() << "        - getGraphType self-time: " << graphTiming.getGraphTypeMs << "ms\n";
+        llvm::outs() << "        - nextGraphHead self-time: " << graphTiming.nextGraphHeadMs << "ms\n";
+        llvm::outs() << "        - createBasicGraph self-time: " << graphTiming.createBasicGraphMs << "ms\n";
+        llvm::outs() << "        - createBasicBlock self-time: " << graphTiming.createBasicBlockMs << "ms\n";
+        llvm::outs() << "        - createBranch self-time: " << graphTiming.createBranchMs << "ms\n";
+        llvm::outs() << "        - createLoop self-time: " << graphTiming.createLoopMs << "ms\n";
+        llvm::outs() << "        - getLoopHeadGraph self-time: " << graphTiming.getLoopHeadGraphMs << "ms\n";
+        llvm::outs() << "        - bbTwin self-time: " << graphTiming.bbTwinMs << "ms\n";
+        llvm::outs() << "        - addFlow self-time: " << graphTiming.addFlowMs << "ms\n";
+        llvm::outs() << "        - record self-time: " << graphTiming.recordMs << "ms\n";
+
+        const std::vector<std::pair<const char*, double>> graphComponents = {
+            {"createGraph frame", graphTiming.createGraphFrameMs},
+            {"getGraphType", graphTiming.getGraphTypeMs},
+            {"nextGraphHead", graphTiming.nextGraphHeadMs},
+            {"createBasicGraph", graphTiming.createBasicGraphMs},
+            {"createBasicBlock", graphTiming.createBasicBlockMs},
+            {"createBranch", graphTiming.createBranchMs},
+            {"createLoop", graphTiming.createLoopMs},
+            {"getLoopHeadGraph", graphTiming.getLoopHeadGraphMs},
+            {"bbTwin", graphTiming.bbTwinMs},
+            {"addFlow", graphTiming.addFlowMs},
+            {"record", graphTiming.recordMs}
+        };
+
+        double graphComponentsTotalMs = 0.0;
+        for (const auto& [_, elapsedMs] : graphComponents) {
+            graphComponentsTotalMs += elapsedMs;
+        }
+
+        const auto hottestComponent = std::max_element(
+            graphComponents.begin(),
+            graphComponents.end(),
+            [](const auto& lhs, const auto& rhs) {
+                return lhs.second < rhs.second;
+            }
+        );
+
+        if (hottestComponent != graphComponents.end()) {
+            llvm::outs() << "      - most expensive component (self-time): " << hottestComponent->first
+                         << " (" << hottestComponent->second << "ms";
+            if (graphComponentsTotalMs > 0.0) {
+                llvm::outs() << ", " << (hottestComponent->second * 100.0 / graphComponentsTotalMs)
+                             << "% of detailed graph-component self-time";
+            }
+            llvm::outs() << ")\n";
+        }
+
         llvm::outs() << "    - analysis prepareBaseFactor time: " << graphTiming.analysisPrepareMs << "ms\n";
         llvm::outs() << "    - analysis refine time: " << graphTiming.analysisRefineMs << "ms\n";
         llvm::outs() << "    - analysis total time: " << graphTiming.analysisTotalMs << "ms\n";

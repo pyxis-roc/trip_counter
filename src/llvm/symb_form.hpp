@@ -23,6 +23,7 @@
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <chrono>
+#include <type_traits>
 
 #include "symb_expr.hpp"
 
@@ -182,6 +183,17 @@ public:
     struct TimingStats {
         double createProgramMs = 0.0;
         double createGraphMs = 0.0;
+        double createGraphFrameMs = 0.0;
+        double getGraphTypeMs = 0.0;
+        double nextGraphHeadMs = 0.0;
+        double createBasicGraphMs = 0.0;
+        double createBasicBlockMs = 0.0;
+        double createBranchMs = 0.0;
+        double createLoopMs = 0.0;
+        double getLoopHeadGraphMs = 0.0;
+        double bbTwinMs = 0.0;
+        double addFlowMs = 0.0;
+        double recordMs = 0.0;
         double analysisTotalMs = 0.0;
         double analysisPrepareMs = 0.0;
         double analysisRefineMs = 0.0;
@@ -365,8 +377,50 @@ public:
     set<shared_ptr<BasicGraph>> earlyExits;
 
 private:
+    struct ActiveTimer {
+        double* bucketMs = nullptr;
+        std::chrono::high_resolution_clock::time_point start;
+        double childMs = 0.0;
+    };
+
+    template <typename Fn>
+    auto timeComponent(double& bucketMs, Fn&& fn) {
+        if (!timingEnabled) {
+            return std::forward<Fn>(fn)();
+        }
+
+        timerStack.push_back(ActiveTimer{&bucketMs, std::chrono::high_resolution_clock::now(), 0.0});
+        if constexpr (std::is_void_v<std::invoke_result_t<Fn&>>) {
+            std::forward<Fn>(fn)();
+            auto t1 = std::chrono::high_resolution_clock::now();
+            auto current = timerStack.back();
+            timerStack.pop_back();
+            auto totalMs = std::chrono::duration<double, std::milli>(t1 - current.start).count();
+            auto selfMs = totalMs - current.childMs;
+            if (selfMs < 0.0) selfMs = 0.0;
+            bucketMs += selfMs;
+            if (!timerStack.empty()) {
+                timerStack.back().childMs += totalMs;
+            }
+        } else {
+            auto result = std::forward<Fn>(fn)();
+            auto t1 = std::chrono::high_resolution_clock::now();
+            auto current = timerStack.back();
+            timerStack.pop_back();
+            auto totalMs = std::chrono::duration<double, std::milli>(t1 - current.start).count();
+            auto selfMs = totalMs - current.childMs;
+            if (selfMs < 0.0) selfMs = 0.0;
+            bucketMs += selfMs;
+            if (!timerStack.empty()) {
+                timerStack.back().childMs += totalMs;
+            }
+            return result;
+        }
+    }
+
     bool timingEnabled = false;
     TimingStats timingStats;
+    std::vector<ActiveTimer> timerStack;
 };
 
 class GraphViewer{
