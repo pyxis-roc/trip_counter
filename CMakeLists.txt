@@ -40,47 +40,49 @@ set(CMAKE_EXE_LINKER_FLAGS "-fuse-ld=lld")
 # prepare utils llvm ir plugin using local compiler
 
 add_custom_command(
-    OUTPUT ${PROJECT_SOURCE_DIR}/IR_plugin/print.ll
+    OUTPUT ${PROJECT_SOURCE_DIR}/src/IR_plugin/print.ll
     COMMAND ${CMAKE_CXX_COMPILER} -S -emit-llvm
-                    ${PROJECT_SOURCE_DIR}/IR_plugin/print.cc
-                    -o ${PROJECT_SOURCE_DIR}/IR_plugin/print.ll
-    DEPENDS ${PROJECT_SOURCE_DIR}/IR_plugin/print.cc
-    COMMENT "Generating LLVM IR from /IR_plugin/print.cc"
+                    ${PROJECT_SOURCE_DIR}/src/IR_plugin/print.cc
+                    -o ${PROJECT_SOURCE_DIR}/src/IR_plugin/print.ll
+    DEPENDS ${PROJECT_SOURCE_DIR}/src/IR_plugin/print.cc
+    COMMENT "Generating LLVM IR from /src/IR_plugin/print.cc"
 )
 
 add_custom_target(
     GenerateIR ALL
-    DEPENDS ${PROJECT_SOURCE_DIR}/IR_plugin/print.ll
+    DEPENDS ${PROJECT_SOURCE_DIR}/src/IR_plugin/print.ll
 )
 
 add_executable(
     symCount 
-    main.cc 
-    block_counting.cc
-    control_variable.cc 
-    loop_summary.cc
-    utils.cc
-    printer.cc
+    src/tools/symcount_main.cc 
+    src/core/block_counting.cc
+    src/core/control_variable.cc 
+    src/core/loop_summary.cc
+    src/core/utils.cc
+    src/core/printer.cc
 )
 
 add_executable(
     instr-count
-    instr_count.cc
-    utils.cc
+    src/tools/instr_count_main.cc
+    src/core/utils.cc
 )
 
 add_executable(
     symb-viewer
-    symb_viewer.cc
-    symb_form.cc
-    utils.cc
-    symb_expr.cc
-    characterize.cc
-    symb_instance.cc
+    src/tools/symb_viewer_main.cc
+    src/core/symb_form.cc
+    src/core/utils.cc
+    src/core/symb_expr.cc
+    src/core/characterize.cc
+    src/core/symb_instance.cc
 )
 
-target_compile_definitions(symCount PRIVATE IR_PLUGIN_PATH="${PROJECT_SOURCE_DIR}/IR_plugin")
-target_include_directories(symCount PUBLIC "${PROJECT_SOURCE_DIR}")
+target_compile_definitions(symCount PRIVATE IR_PLUGIN_PATH="${PROJECT_SOURCE_DIR}/src/IR_plugin")
+target_include_directories(symCount PUBLIC "${PROJECT_SOURCE_DIR}/include/trip_counter")
+target_include_directories(instr-count PUBLIC "${PROJECT_SOURCE_DIR}/include/trip_counter")
+target_include_directories(symb-viewer PUBLIC "${PROJECT_SOURCE_DIR}/include/trip_counter")
 target_link_libraries(symCount ${LLVM_LIBS} nlohmann_json::nlohmann_json)
 target_link_libraries(instr-count ${LLVM_LIBS} nlohmann_json::nlohmann_json)
 target_link_libraries(symb-viewer ${LLVM_LIBS} nlohmann_json::nlohmann_json z3)
