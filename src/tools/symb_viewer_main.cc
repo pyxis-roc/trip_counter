@@ -6,6 +6,7 @@
 #include "symb_form.hpp"
 #include "characterize.hpp"
 #include "symb_instance.hpp"
+#include "instr_count_subcommand.hpp"
 
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -35,6 +36,7 @@ static cl::SubCommand KernelCmd("kernel", "Generate kernel-only instance (no mai
 static cl::SubCommand InstanceCmd("instance", "Generate test instance (with main and parsing)");
 static cl::SubCommand FormulaCmd("formula", "Show symbolic formula/graphs (text or JSON)");
 static cl::SubCommand CharacterizeCmd("characterize", "Run characterization metrics only");
+static cl::SubCommand InstrCountCmd("inst-count", "Count instructions in the target function");
 
 static cl::opt<std::string> InputFilename(
     cl::Positional, 
@@ -74,6 +76,13 @@ static cl::opt<bool> Time(
     cl::init(false),
     cl::sub(FormulaCmd)
 );
+static cl::opt<std::string> InstrCountOutputFile(
+    "o",
+    cl::desc("Output instruction-count result to JSON file"),
+    cl::value_desc("filename"),
+    cl::init(""),
+    cl::sub(InstrCountCmd)
+);
 // Characterization now via 'characterize' subcommand (removed -char flag)
 // Options under subcommands
 static cl::opt<bool> OutputToFile(
@@ -93,6 +102,7 @@ void printHelpMessage() {
     llvm::outs() << "  instance      Generate test instance (with main)\n";
     llvm::outs() << "  formula       Show symbolic formula (text or -json)\n";
     llvm::outs() << "  characterize  Run characterization metrics only\n\n";
+    llvm::outs() << "  inst-count    Count instructions in the target function\n\n";
     llvm::outs() << "Global Options:\n";
     llvm::outs() << "  -h                  Print help message\n\n";
     llvm::outs() << "Formula Options (use with 'formula'):\n";
@@ -102,11 +112,14 @@ void printHelpMessage() {
     llvm::outs() << "  -quiet              Suppress textual output (use with -json)\n\n";
     llvm::outs() << "Kernel/Instance Options:\n";
     llvm::outs() << "  (add --output-to-file to write results binary)\n\n";
+    llvm::outs() << "inst-count Options:\n";
+    llvm::outs() << "  -o=<file>           Emit JSON output to file\n\n";
     llvm::outs() << "Examples:\n";
     llvm::outs() << "  symb_viewer kernel input.ll foo --output-to-file\n";
     llvm::outs() << "  symb_viewer instance input.ll foo\n";
     llvm::outs() << "  symb_viewer formula input.ll foo -json=foo.json -subs=vals.json\n";
     llvm::outs() << "  symb_viewer characterize input.ll foo -time\n";
+    llvm::outs() << "  symb_viewer inst-count input.ll foo -o=counts.json\n";
 }
 
 
@@ -126,6 +139,12 @@ int main(int argc, char **argv) {
     cl::ParseCommandLineOptions(argc, argv, "LLVM IR Loop/PDom/SE Analysis\n");
     auto t_cli_end = std::chrono::high_resolution_clock::now();
     t_cli = t_cli_end - t_cli_start;
+
+    bool kernelMode = (bool) KernelCmd;
+    bool instanceMode = (bool) InstanceCmd;
+    bool formulaMode = (bool) FormulaCmd;
+    bool characterizeMode = (bool) CharacterizeCmd;
+    bool instrCountMode = (bool) InstrCountCmd;
 
     LLVMContext Context;
     SMDiagnostic Err;
@@ -166,6 +185,11 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    if (instrCountMode) {
+        analyzeInstructionCount(*TargetFunc, InstrCountOutputFile);
+        return 0;
+    }
+
     auto t_fpm_start = std::chrono::high_resolution_clock::now();
     FPM.run(*TargetFunc, FAM);
     auto t_fpm_end = std::chrono::high_resolution_clock::now();
@@ -197,12 +221,6 @@ int main(int argc, char **argv) {
 
     std::chrono::duration<double> t_subs{0};
     std::chrono::duration<double> t_check_subs{0}, t_parse_subs{0}, t_apply_subs{0};
-
-    // Determine active subcommand modes
-    bool kernelMode = (bool) KernelCmd;
-    bool instanceMode = (bool) InstanceCmd;
-    bool formulaMode = (bool) FormulaCmd;
-    bool characterizeMode = (bool) CharacterizeCmd;
 
     // Apply substitutions only in formula mode
     if (formulaMode && !SubstitutionFile.empty()) {

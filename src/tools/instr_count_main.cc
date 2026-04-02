@@ -5,7 +5,7 @@ basic block in a function and prints the counts to the standard output in the fo
     <block_ID> <block_name> arithmetic_count memory_count
 
 command line interface:
-    instr-count <IR_file> <function_name> [-o <output_file>]
+    inst-count <IR_file> <function_name> [-o <output_file>]
     -o <output_file> : output the result to a json file instead of stdout
     -h : print this help message
 */
@@ -50,7 +50,7 @@ llvm::cl::opt<std::string> OutputFile("o", llvm::cl::desc("Specify output file (
 llvm::cl::opt<bool> Help("h", llvm::cl::desc("Print help message"));
 
 void printHelp() {
-    llvm::outs() << "Usage: instr-count <IR_file> <function_name> [-o <output_file>]\n"
+    llvm::outs() << "Usage: inst-count <IR_file> <function_name> [-o <output_file>]\n"
                  << "Options:\n"
                  << "  -o <output_file> : Output the result to a JSON file instead of stdout\n"
                  << "  -h               : Print this help message\n";

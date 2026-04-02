@@ -5,9 +5,10 @@
 
 - Emit symbolic formulas / graph JSON
 - Generate symbolic instance LLVM IR (`kernel` / `instance` modes)
+- Count per-block instruction/category statistics (`inst-count` mode)
 - Run characterization metrics
 
-> Note: `symCount` and `instr-count` are currently experimental utilities and are not the main documented workflow.
+> Note: `symCount` is currently experimental and not the main documented workflow.
 
 ## Requirements
 
@@ -51,6 +52,7 @@ Subcommands:
 - `formula` — show symbolic formulas (text or JSON)
 - `kernel` — generate kernel-only symbolic instance (no generated `main`)
 - `instance` — generate symbolic instance with generated `main`
+- `inst-count` — count instructions in the target function
 - `characterize` — print structural/complexity metrics
 
 Global option:
@@ -67,6 +69,10 @@ Global option:
 ### `kernel` / `instance` options
 
 - `--output-to-file`: generate output that writes results to file instead of stdout
+
+### `inst-count` options
+
+- `-o=<file>`: write instruction-count result as JSON
 
 ## Examples
 
@@ -106,6 +112,18 @@ Global option:
 ./build/symb-viewer characterize kernel_examples/example/example.ll main -time
 ```
 
+### 7) Instruction count mode
+
+```bash
+./build/symb-viewer inst-count kernel_examples/example/example.ll main
+```
+
+### 8) Instruction count JSON output
+
+```bash
+./build/symb-viewer inst-count kernel_examples/example/example.ll main -o=counts.json
+```
+
 ## Output Notes
 
 - `formula` mode:
@@ -115,3 +133,6 @@ Global option:
   - print generated LLVM IR module to stdout
 - `characterize` mode:
   - prints module/function metrics plus symbolic summary counts
+- `inst-count` mode:
+  - prints per-basic-block opcode counts and category summary
+  - with `-o=<file>`, emits JSON output

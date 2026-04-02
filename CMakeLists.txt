@@ -64,14 +64,9 @@ add_executable(
 )
 
 add_executable(
-    instr-count
-    src/tools/instr_count_main.cc
-    src/core/utils.cc
-)
-
-add_executable(
     symb-viewer
     src/tools/symb_viewer_main.cc
+    src/core/instr_count_subcommand.cc
     src/core/symb_form.cc
     src/core/utils.cc
     src/core/symb_expr.cc
@@ -81,10 +76,8 @@ add_executable(
 
 target_compile_definitions(symCount PRIVATE IR_PLUGIN_PATH="${PROJECT_SOURCE_DIR}/src/IR_plugin")
 target_include_directories(symCount PUBLIC "${PROJECT_SOURCE_DIR}/include/trip_counter")
-target_include_directories(instr-count PUBLIC "${PROJECT_SOURCE_DIR}/include/trip_counter")
 target_include_directories(symb-viewer PUBLIC "${PROJECT_SOURCE_DIR}/include/trip_counter")
 target_link_libraries(symCount ${LLVM_LIBS} nlohmann_json::nlohmann_json)
-target_link_libraries(instr-count ${LLVM_LIBS} nlohmann_json::nlohmann_json)
 target_link_libraries(symb-viewer ${LLVM_LIBS} nlohmann_json::nlohmann_json z3)
 target_compile_options(symb-viewer PRIVATE -O3)
-install(TARGETS symCount instr-count symb-viewer DESTINATION bin)
+install(TARGETS symCount symb-viewer DESTINATION bin)
