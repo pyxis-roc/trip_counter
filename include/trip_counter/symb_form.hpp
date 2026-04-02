@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 #include <iostream>
+#include <algorithm>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <chrono>
@@ -57,6 +58,17 @@ public:
 
     Program(vector<SymbolicExpr> inputs, shared_ptr<Graph> G)
         : inputs(std::move(inputs)), G(std::move(G)) {}
+
+    void addInput(const SymbolicExpr& input) {
+        const auto inputStr = input.str();
+        const auto exists = std::any_of(inputs.begin(), inputs.end(),
+                                        [&](const SymbolicExpr& existing) {
+                                            return existing.str() == inputStr;
+                                        });
+        if (!exists) {
+            inputs.push_back(input);
+        }
+    }
         
 };
 

@@ -10,6 +10,7 @@
 #include "llvm/IR/Value.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
+#include <cctype>
 #include <cstdlib>
 #include <llvm/IR/BasicBlock.h>
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
@@ -641,6 +642,25 @@ void GraphBuilder::substitute(shared_ptr<BasicGraph> BG, const vector<SymbolicEx
 }
 
 using GA = GraphBuilder::Analysis;
+
+namespace {
+std::string sanitizeCallSymbolComponent(llvm::StringRef name) {
+    std::string sanitized;
+    sanitized.reserve(name.size());
+    for (char ch : name) {
+        if (std::isalnum(static_cast<unsigned char>(ch)) || ch == '_') {
+            sanitized.push_back(ch);
+        } else {
+            sanitized.push_back('_');
+        }
+    }
+    return sanitized;
+}
+
+std::string callReturnSymbolName(llvm::StringRef name) {
+    return "call_ret_" + sanitizeCallSymbolComponent(name);
+}
+} // namespace
 
 void GA::prepareBaseFactor(shared_ptr<Program>P){
     traverse(P->G);
@@ -1708,8 +1728,18 @@ SymbolicExpr GA::call2Expr(const llvm::CallInst& C) {
             if (name == "__TVMBackendFreeWorkspace") {
                 return SEM.bvVal(0, bitwidth);
             }
+
+            if (name == "__TVMBackendAllocWorkspace") {
+                return SEM.bvVal(1, bitwidth);
+            }
+
+            auto callRet = SEM.bvNamed(callReturnSymbolName(name), bitwidth);
+            if (P) {
+                P->addInput(callRet);
+            }
+            return callRet;
         }
-        llvm::errs() << "Warning: call2Expr unsupported intrinsic call, assumed to be 1: ";
+        llvm::errs() << "Warning: call2Expr unsupported indirect call, assumed to be 1: ";
         C.print(llvm::errs());
         llvm::errs() << "\n";
 
@@ -2222,6 +2252,4 @@ bool GA::isSolvable(const llvm::Value* v){
 
     return !hasCircularDependency(v);
 }
-
-
 
