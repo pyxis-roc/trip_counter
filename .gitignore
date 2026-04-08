@@ -12,3 +12,4 @@ instr.prof
 *.profdata
 *.profraw
 *.ll
+.codex

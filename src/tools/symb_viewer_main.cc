@@ -177,7 +177,7 @@ int main(int argc, char **argv) {
     auto t_pass_setup_end = std::chrono::high_resolution_clock::now();
     t_pass_setup = t_pass_setup_end - t_pass_setup_start;
 
-    // FPM.addPass(PromotePass());
+    FPM.addPass(PromotePass());
 
     Function *TargetFunc = M->getFunction(FunctionName);
     if (!TargetFunc || TargetFunc->isDeclaration()) {

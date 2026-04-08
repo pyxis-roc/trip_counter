@@ -15,6 +15,7 @@
 #include <llvm/IR/BasicBlock.h>
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include <llvm/IR/InstrTypes.h>
+#include <llvm/Support/Error.h>
 #include <memory>
 #include <optional>
 #include <string>
@@ -659,6 +660,77 @@ std::string sanitizeCallSymbolComponent(llvm::StringRef name) {
 
 std::string callReturnSymbolName(llvm::StringRef name) {
     return "call_ret_" + sanitizeCallSymbolComponent(name);
+}
+
+const llvm::Value* stripMemoryPointer(const llvm::Value* value) {
+    return value ? value->stripPointerCasts() : nullptr;
+}
+
+bool sameMemoryPointer(const llvm::Value* lhs, const llvm::Value* rhs) {
+    return stripMemoryPointer(lhs) == stripMemoryPointer(rhs);
+}
+
+bool isClearlyDifferentSimpleMemoryObject(const llvm::Value* lhs,
+                                          const llvm::Value* rhs) {
+    const llvm::Value* lhsBase = stripMemoryPointer(lhs);
+    const llvm::Value* rhsBase = stripMemoryPointer(rhs);
+    if (!lhsBase || !rhsBase || lhsBase == rhsBase) return false;
+
+    auto isSimpleObject = [](const llvm::Value* value) {
+        return llvm::isa<llvm::AllocaInst>(value) ||
+               llvm::isa<llvm::GlobalValue>(value);
+    };
+    return isSimpleObject(lhsBase) && isSimpleObject(rhsBase);
+}
+
+enum class StoreSearchResult { Found, NotFound, Blocked };
+
+StoreSearchResult findStoreInBlockBefore(const llvm::BasicBlock& block,
+                                         const llvm::Instruction* before,
+                                         const llvm::Value* loadPointer,
+                                         const llvm::StoreInst*& store) {
+    const llvm::Instruction* current = before ? before->getPrevNode()
+                                              : block.getTerminator();
+    while (current) {
+        if (const auto* storeInst = llvm::dyn_cast<llvm::StoreInst>(current)) {
+            if (storeInst->isVolatile() || storeInst->isAtomic()) {
+                return StoreSearchResult::Blocked;
+            }
+            if (sameMemoryPointer(storeInst->getPointerOperand(), loadPointer)) {
+                store = storeInst;
+                return StoreSearchResult::Found;
+            }
+            if (!isClearlyDifferentSimpleMemoryObject(storeInst->getPointerOperand(),
+                                                      loadPointer)) {
+                return StoreSearchResult::Blocked;
+            }
+        } else if (current->mayWriteToMemory()) {
+            return StoreSearchResult::Blocked;
+        }
+        current = current->getPrevNode();
+    }
+    return StoreSearchResult::NotFound;
+}
+
+const llvm::StoreInst* findPairedStoreForLoad(const llvm::LoadInst& load) {
+    if (load.isVolatile() || load.isAtomic()) return nullptr;
+
+    const llvm::Value* loadPointer = load.getPointerOperand();
+    const llvm::BasicBlock* block = load.getParent();
+    const llvm::Instruction* before = &load;
+    std::set<const llvm::BasicBlock*> visited;
+
+    while (block && visited.insert(block).second) {
+        const llvm::StoreInst* store = nullptr;
+        StoreSearchResult result =
+            findStoreInBlockBefore(*block, before, loadPointer, store);
+        if (result == StoreSearchResult::Found) return store;
+        if (result == StoreSearchResult::Blocked) return nullptr;
+
+        block = block->getSinglePredecessor();
+        before = nullptr;
+    }
+    return nullptr;
 }
 } // namespace
 
@@ -1562,24 +1634,30 @@ optional<SymbolicExpr> GA::getLoopCount(llvm::Loop* loop){
         return SEM.symbLoopCount(loopCount_literal);
     }
 
-    // SCEV gives backedge count, but we want trip count = backedge count + 1
+    // SCEV gives backedge count, trip count is either backedge count + 1 (if header is exiting) 
+    // or backedge count (if header is not exiting)
     auto backedgeCountExpr = SCEV2Expr(*backedgeCount);
-    if(backedgeCountExpr.getBitwidth() == 64){
+    bool headerExiting =
+        loop->isLoopExiting(loop->getHeader()) && (loop->getBlocks().size() > 1);
+    if(!headerExiting){
+        // tail exiting
+        if(backedgeCountExpr.getBitwidth() == 64){
         // good, default loop count is 64 bits, we can directly use it
-        return backedgeCountExpr + SEM.one64();
+            return backedgeCountExpr + SEM.one64();
+        }
+        else if (backedgeCountExpr.getBitwidth() < 64){
+            // if it is smaller than 64 bits, we can zero extend it to 64 bits
+            return backedgeCountExpr.zeroExtend(64 - backedgeCountExpr.getBitwidth()) + SEM.one64();
+        }
+        else{
+            //print 
+            llvm::errs() << "Error: Loop " << getName(loop) << " backedge count SCEV: ";
+            backedgeCount->print(llvm::errs());
+            llvm::errs() << " is not 64 bits, type incompatible\n";
+            exit(1);
+        }
     }
-    else if (backedgeCountExpr.getBitwidth() < 64){
-        // if it is smaller than 64 bits, we can zero extend it to 64 bits
-        return backedgeCountExpr.zeroExtend(64 - backedgeCountExpr.getBitwidth()) + SEM.one64();
-    }
-    else{
-        //print 
-        llvm::errs() << "Error: Loop " << getName(loop) << " backedge count SCEV: ";
-        backedgeCount->print(llvm::errs());
-        llvm::errs() << " is not 64 bits, type incompatible\n";
-        exit(1);
-    }
-    
+    return backedgeCountExpr;
 }
 
 SymbolicExpr GA::SCEV2Expr(const llvm::SCEV& scev) {
@@ -1990,6 +2068,27 @@ SymbolicExpr GA::inst2Expr(const llvm::Instruction& I) {
             auto op = I.getOperand(0);
             return value2Expr(*op);
         }
+        case llvm::Instruction::Load:{
+            const auto* load = llvm::cast<llvm::LoadInst>(&I);
+            if ((load->getType()->isIntegerTy() || load->getType()->isPointerTy())) {
+                if (const auto* store = findPairedStoreForLoad(*load)) {
+                    auto storedExpr = value2Expr(*store->getValueOperand());
+                    unsigned loadBitwidth = SEM.getBitWidth(I);
+                    if (storedExpr.getBitwidth() == loadBitwidth) {
+                        return storedExpr;
+                    }
+                    llvm::errs() << "Warning: inst2Expr Load/store bitwidth mismatch, "
+                                 << "falling back for load: ";
+                    I.print(llvm::errs());
+                    llvm::errs() << "\n";
+                }
+            }
+            llvm::errs() << "Warning: inst2Expr Load instruction has no paired prior store, assumed to return 1 ";
+            I.print(llvm::errs());
+            llvm::errs() << "\n";
+            auto bitwidth = SEM.getBitWidth(I);
+            return SEM.bvVal(1, bitwidth);
+        }
         case llvm::Instruction::Call: {
             if (auto *call = llvm::dyn_cast<llvm::CallInst>(&I)) {
                 return call2Expr(*call);
@@ -2252,4 +2351,3 @@ bool GA::isSolvable(const llvm::Value* v){
 
     return !hasCircularDependency(v);
 }
-
