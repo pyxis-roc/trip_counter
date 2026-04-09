@@ -2,6 +2,12 @@ cmake_minimum_required(VERSION 3.10)
 
 project(symCount VERSION 1.0)
 
+option(
+    TRIP_COUNTER_ENABLE_SYMB_FORM_TESTS
+    "Enable optional symb_form_tests benchmark integration targets and tests."
+    OFF
+)
+
 # get nlohmann/json
 include(FetchContent)
 
@@ -86,3 +92,69 @@ target_link_libraries(symCount ${LLVM_LIBS} nlohmann_json::nlohmann_json)
 target_link_libraries(symb-viewer ${LLVM_LIBS} nlohmann_json::nlohmann_json z3)
 target_compile_options(symb-viewer PRIVATE -O3)
 install(TARGETS symCount symb-viewer DESTINATION bin)
+
+if(TRIP_COUNTER_ENABLE_SYMB_FORM_TESTS)
+    set(TRIP_COUNTER_REQUIRED_SUBMODULES "")
+
+    if(NOT EXISTS "${PROJECT_SOURCE_DIR}/third_party/tvm/CMakeLists.txt")
+        string(APPEND TRIP_COUNTER_REQUIRED_SUBMODULES "\n  - third_party/tvm")
+    endif()
+    if(NOT EXISTS "${PROJECT_SOURCE_DIR}/third_party/instrGen/pyproject.toml")
+        string(APPEND TRIP_COUNTER_REQUIRED_SUBMODULES "\n  - third_party/instrGen")
+    endif()
+    if(NOT EXISTS "${PROJECT_SOURCE_DIR}/third_party/getBBCount/pyproject.toml")
+        string(APPEND TRIP_COUNTER_REQUIRED_SUBMODULES "\n  - third_party/getBBCount")
+    endif()
+    if(NOT EXISTS "${PROJECT_SOURCE_DIR}/external/symb_form_tests/tvm-ops/benchmark.py")
+        string(APPEND TRIP_COUNTER_REQUIRED_SUBMODULES "\n  - external/symb_form_tests")
+    endif()
+
+    if(TRIP_COUNTER_REQUIRED_SUBMODULES)
+        message(FATAL_ERROR
+            "TRIP_COUNTER_ENABLE_SYMB_FORM_TESTS=ON requires these submodules:"
+            "${TRIP_COUNTER_REQUIRED_SUBMODULES}\n"
+            "Initialize them with:\n"
+            "  git submodule update --init --recursive"
+        )
+    endif()
+
+    set(TRIP_COUNTER_SYMB_FORM_VENV_DIR "${PROJECT_SOURCE_DIR}/.venv-symb-form-tests")
+    set(TRIP_COUNTER_TVM_BUILD_DIR "${CMAKE_BINARY_DIR}/third_party/tvm")
+    set(TRIP_COUNTER_BOOTSTRAP_SCRIPT "${PROJECT_SOURCE_DIR}/scripts/bootstrap_symb_form_tests.sh")
+    set(TRIP_COUNTER_RUNNER_SCRIPT "${PROJECT_SOURCE_DIR}/scripts/run_symb_form_benchmark.sh")
+
+    add_custom_target(
+        symb_form_tests_bootstrap
+        COMMAND "${TRIP_COUNTER_BOOTSTRAP_SCRIPT}"
+                --venv-dir "${TRIP_COUNTER_SYMB_FORM_VENV_DIR}"
+                --tvm-build-dir "${TRIP_COUNTER_TVM_BUILD_DIR}"
+        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+        USES_TERMINAL
+        COMMENT "Bootstrapping the optional symb_form_tests benchmark environment"
+    )
+
+    add_custom_target(
+        symb_form_tests
+        COMMAND "${TRIP_COUNTER_RUNNER_SCRIPT}"
+                --build-dir "${CMAKE_BINARY_DIR}"
+                --venv-dir "${TRIP_COUNTER_SYMB_FORM_VENV_DIR}"
+        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+        USES_TERMINAL
+        COMMENT "Running the optional symb_form_tests benchmark suite"
+    )
+    add_dependencies(symb_form_tests symb-viewer symb_form_tests_bootstrap)
+
+    include(CTest)
+    if(BUILD_TESTING)
+        add_test(
+            NAME symb_form_tests_full
+            COMMAND "${TRIP_COUNTER_RUNNER_SCRIPT}"
+                    --build-dir "${CMAKE_BINARY_DIR}"
+                    --venv-dir "${TRIP_COUNTER_SYMB_FORM_VENV_DIR}"
+        )
+        set_tests_properties(symb_form_tests_full PROPERTIES
+            LABELS "integration;slow"
+            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+        )
+    endif()
+endif()
