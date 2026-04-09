@@ -68,6 +68,9 @@ add_executable(
     src/tools/symb_viewer_main.cc
     src/core/instr_count_subcommand.cc
     src/core/symb_form.cc
+    src/core/symb_form_analysis_flow.cc
+    src/core/symb_form_analysis_affine.cc
+    src/core/symb_form_analysis_expr.cc
     src/core/symb_form_symbol.cc
     src/core/symb_form_viewer.cc
     src/core/utils.cc

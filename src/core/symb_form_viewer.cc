@@ -96,36 +96,6 @@ void GraphViewer::showLoop(shared_ptr<Loop> L, std::ostream& os, int indent) {
     showGraph(L->Gb, os, indent + 2);
 }
 
-std::string GraphBuilder::getName(const llvm::BasicBlock* BB) {
-    if(!BB) {
-        return "null";
-    }
-    std::string name;
-    llvm::raw_string_ostream rso(name);
-    BB->printAsOperand(rso, false);
-    return rso.str();
-}
-
-std::string GraphBuilder::getName(const llvm::Argument* arg) {
-    if (!arg) {
-        return "null";
-    }
-    std::string name;
-    llvm::raw_string_ostream rso(name);
-    arg->printAsOperand(rso, false);
-    return rso.str();
-}
-
-std::string GraphBuilder::getName(const llvm::Loop* loop) {
-    if(!loop) {
-        return "null";
-    }
-    std::string name;
-    llvm::raw_string_ostream rso(name);
-    loop->getHeader()->printAsOperand(rso, false);
-    return rso.str();
-}
-
 void GraphViewer::showProgramAsJson(shared_ptr<Program> program, std::ostream& os) {
     if (!program) {
         os << "{}\n";
