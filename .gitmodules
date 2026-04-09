@@ -1,0 +1,13 @@
+[submodule "third_party/tvm"]
+	path = third_party/tvm
+	url = git@github.com:SoftJing1/tvm.git
+	branch = trip-counter-llvm22
+[submodule "third_party/instrGen"]
+	path = third_party/instrGen
+	url = git@github.com:SoftJing1/instrGen.git
+[submodule "third_party/getBBCount"]
+	path = third_party/getBBCount
+	url = git@github.com:SoftJing1/getBBCount.git
+[submodule "external/symb_form_tests"]
+	path = external/symb_form_tests
+	url = git@github.com:SoftJing1/symb_form_tests.git

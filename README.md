@@ -124,6 +124,125 @@ Global option:
 ./build/symb-viewer inst-count kernel_examples/example/example.ll main -o=counts.json
 ```
 
+## Optional Benchmark Integration
+
+This repo can vendor the in-development benchmark workflow so you can run the
+current `symb_form_tests/tvm-ops` regression from the project root without
+installing `symb-viewer` system-wide.
+
+### Included Optional Submodules
+
+- `third_party/tvm` pinned to fork commit `0d21b1e58` on branch `trip-counter-llvm22`
+- `third_party/instrGen`
+- `third_party/getBBCount`
+- `external/symb_form_tests`
+
+The TVM submodule now expects your fork at `git@github.com:SoftJing1/tvm.git`.
+That fork commit is based on upstream TVM commit `68bb125ded265abf1ce46843979feae085fed03d`
+with the repo-local LLVM 22 compatibility fixes recorded as a normal TVM commit.
+
+If `SoftJing1/tvm` does not exist yet, create the fork once and push the pinned branch:
+
+```bash
+git -C third_party/tvm remote set-url origin git@github.com:SoftJing1/tvm.git
+git -C third_party/tvm push -u origin trip-counter-llvm22
+git submodule sync --recursive
+```
+
+Initialize them when you want the integration:
+
+```bash
+git submodule update --init --recursive
+git -C third_party/tvm submodule update --init --recursive
+```
+
+### Bootstrap The Local Benchmark Environment
+
+The bootstrap script creates a repo-local virtualenv, builds the vendored TVM
+tree, installs editable Python packages for TVM, `instrGen`, and
+`getBBCounts`, and validates that Python is importing TVM from this repo.
+
+```bash
+./scripts/bootstrap_symb_form_tests.sh
+```
+
+Useful overrides:
+
+```bash
+./scripts/bootstrap_symb_form_tests.sh \
+  --venv-dir "$(pwd)/.venv-symb-form-tests" \
+  --tvm-build-dir "$(pwd)/build/third_party/tvm" \
+  --build-jobs 4
+```
+
+By default, the bootstrap script now picks a conservative TVM build
+parallelism based on available memory and CPU count to avoid OOM-killing the
+editor or shell session during the vendored TVM build. If you want to tune it
+manually, pass `--build-jobs N` or set `CMAKE_BUILD_PARALLEL_LEVEL=N`.
+
+### Run The Benchmark From This Repo
+
+Build `symb-viewer` locally first:
+
+```bash
+cmake -S . -B build
+cmake --build build
+```
+
+Then run the benchmark wrapper:
+
+```bash
+./scripts/run_symb_form_benchmark.sh
+```
+
+That wrapper reproduces the current external workflow by:
+
+- activating the repo-local benchmark venv
+- preferring the local `build/symb-viewer`
+- running `python3 benchmark.py --no-debug` inside
+  `external/symb_form_tests/tvm-ops`
+
+Extra arguments are passed through to `benchmark.py`:
+
+```bash
+./scripts/run_symb_form_benchmark.sh --op conv
+./scripts/run_symb_form_benchmark.sh --base_dir /tmp/symb-form-tests
+```
+
+### Optional CMake / CTest Hooks
+
+Enable the integration hooks during configure time:
+
+```bash
+cmake -S . -B build -DTRIP_COUNTER_ENABLE_SYMB_FORM_TESTS=ON
+```
+
+This adds:
+
+- `symb_form_tests_bootstrap` custom target
+- `symb_form_tests` custom target
+- `symb_form_tests_full` CTest entry labeled `integration` and `slow`
+
+Examples:
+
+```bash
+cmake --build build --target symb_form_tests_bootstrap
+cmake --build build --target symb_form_tests
+ctest --test-dir build -L integration
+```
+
+### Troubleshooting
+
+- `llvm-config` missing:
+  TVM bootstrap needs LLVM available on `PATH`.
+- `llvm-profdata` missing:
+  `getBBCounts` depends on it during exact-count extraction.
+- `clang++` missing:
+  the benchmark uses it to compile generated `instance.ll`.
+- TVM imports from the wrong location:
+  rerun `./scripts/bootstrap_symb_form_tests.sh` and make sure the wrapper is
+  using the repo-local venv instead of another active environment.
+
 ## Output Notes
 
 - `formula` mode:
