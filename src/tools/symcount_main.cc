@@ -16,6 +16,7 @@
 #include "control_variable.hpp"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Transforms/Utils/Mem2Reg.h"
+#include "llvm/Transforms/InstCombine/InstCombine.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 #include "utils.hpp"
@@ -41,6 +42,7 @@ void analyzeLoop(Module &M, std::string targetFunctionName = "main") {
     FAM.registerPass([&] { return LoopAnalysis(); });
 
     FPM.addPass(PromotePass());
+    FPM.addPass(InstCombinePass());
     FPM.addPass(LoopSimplifyPass());
     // FPM.addPass(ScalarEvolutionPrinterPass(llvm::errs()));
 

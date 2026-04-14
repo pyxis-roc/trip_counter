@@ -30,7 +30,7 @@ set(Z3_MIN_VERSION "4.15.1")
 find_package(Z3 ${Z3_MIN_VERSION} REQUIRED CONFIG)
 
 # Map LLVM components to library names
-llvm_map_components_to_libnames(LLVM_LIBS core support irreader analysis passes)
+llvm_map_components_to_libnames(LLVM_LIBS core support irreader analysis passes instcombine)
 
 FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz)
 FetchContent_MakeAvailable(json)

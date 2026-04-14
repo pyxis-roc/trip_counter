@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "llvm/Transforms/Utils/Mem2Reg.h"
+#include "llvm/Transforms/InstCombine/InstCombine.h"
 
 using namespace llvm;
 
@@ -178,6 +179,7 @@ int main(int argc, char **argv) {
     t_pass_setup = t_pass_setup_end - t_pass_setup_start;
 
     FPM.addPass(PromotePass());
+    FPM.addPass(InstCombinePass());
 
     Function *TargetFunc = M->getFunction(FunctionName);
     if (!TargetFunc || TargetFunc->isDeclaration()) {
