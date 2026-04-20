@@ -40,6 +40,21 @@ bool sameMemoryPointer(const llvm::Value* lhs, const llvm::Value* rhs) {
     return stripMemoryPointer(lhs) == stripMemoryPointer(rhs);
 }
 
+bool hasIncomingFromCurrentLoop(const llvm::PHINode& phi, llvm::LoopInfo& LI) {
+    const llvm::BasicBlock* currentBB = phi.getParent();
+    llvm::Loop* loop = LI.getLoopFor(const_cast<llvm::BasicBlock*>(currentBB));
+    if (!loop) return false;
+
+    for (unsigned i = 0; i < phi.getNumIncomingValues(); ++i) {
+        const llvm::BasicBlock* incomingBB = phi.getIncomingBlock(i);
+        if (loop->contains(const_cast<llvm::BasicBlock*>(incomingBB))) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 bool isClearlyDifferentSimpleMemoryObject(const llvm::Value* lhs,
                                           const llvm::Value* rhs) {
     const llvm::Value* lhsBase = stripMemoryPointer(lhs);
@@ -756,6 +771,10 @@ bool GA::isSolvable(const llvm::Value* v){
         recStack.insert(V);
 
         if (auto *phi = llvm::dyn_cast<llvm::PHINode>(V)) {
+            if (hasIncomingFromCurrentLoop(*phi, LI)) {
+                return true;
+            }
+
             for (unsigned i = 0; i < phi->getNumIncomingValues(); ++i) {
                 // handle outsider induction variables whose values can be computed through SCEV
                 if(isSolvableExitValue(phi->getIncomingValue(i), phi->getIncomingBlock(i), phi->getParent())){
