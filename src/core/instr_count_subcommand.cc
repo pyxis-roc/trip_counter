@@ -5,10 +5,13 @@
 
 #include <nlohmann/json.hpp>
 
+#include <llvm/IR/IntrinsicInst.h>
+#include <llvm/IR/Intrinsics.h>
 #include <llvm/Support/raw_ostream.h>
 
 #include <fstream>
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
 
@@ -23,6 +26,101 @@ const std::map<std::string, std::set<std::string>> LLVM_CATEGORIES = {
     {"other", {"phi", "select", "call", "va_arg", "ret", "landingpad", "catchpad", "cleanuppad", "catchret", "cleanupret", "catchswitch"}}
 };
 
+namespace {
+
+std::string normalizeCallName(const llvm::CallBase &C) {
+    if (C.isInlineAsm()) {
+        return "inlineasm";
+    }
+
+    if (const auto *callee = C.getCalledFunction()) {
+        const auto intrinsicID = callee->getIntrinsicID();
+        if (intrinsicID != llvm::Intrinsic::not_intrinsic) {
+            llvm::StringRef baseName = llvm::Intrinsic::getBaseName(intrinsicID);
+            return baseName.consume_front("llvm.") ? baseName.str() : baseName.str();
+        }
+        return callee->getName().str();
+    }
+
+    const llvm::Value *calledOperand = C.getCalledOperand()->stripPointerCasts();
+    if (const auto *global = llvm::dyn_cast<llvm::GlobalValue>(calledOperand)) {
+        return global->getName().str();
+    }
+
+    return C.getOpcodeName();
+}
+
+std::optional<std::string> categoryForInstruction(const llvm::Instruction &I,
+                                                  llvm::StringRef instructionName) {
+    for (const auto &category : LLVM_CATEGORIES) {
+        if (category.second.count(instructionName.str())) {
+            return category.first;
+        }
+    }
+
+    const auto *call = llvm::dyn_cast<llvm::CallBase>(&I);
+    if (!call) {
+        return std::nullopt;
+    }
+
+    if (const auto *intrinsic = llvm::dyn_cast<llvm::IntrinsicInst>(call)) {
+        if (llvm::isa<llvm::MemIntrinsic>(intrinsic)) {
+            return "memory";
+        }
+        if (intrinsic->isAssumeLikeIntrinsic() ||
+            llvm::isDbgInfoIntrinsic(intrinsic->getIntrinsicID()) ||
+            llvm::isLifetimeIntrinsic(intrinsic->getIntrinsicID())) {
+            return "other";
+        }
+    }
+
+    if (instructionName.contains("barrier") || instructionName.contains("trap")) {
+        return "control_flow";
+    }
+
+    if (instructionName.contains("gather") || instructionName.contains("scatter") ||
+        instructionName.starts_with("mem")) {
+        return "memory";
+    }
+
+    if (instructionName.starts_with("bit") || instructionName == "bswap" ||
+        instructionName == "ctlz" || instructionName == "cttz" ||
+        instructionName == "ctpop") {
+        return "bitwise";
+    }
+
+    if (instructionName.starts_with("vector.")) {
+        return "vector";
+    }
+
+    if (instructionName == "is.fpclass" || instructionName.starts_with("cmp")) {
+        return "compare";
+    }
+
+    static const std::set<std::string> arithmeticCalls = {
+        "abs",      "canonicalize", "ceil",    "cos",    "exp",       "exp2",
+        "fabs",     "floor",        "fma",     "fmuladd","log",       "log10",
+        "log2",     "max",          "maximum", "maxnum", "min",       "minimum",
+        "minnum",   "nearbyint",    "pow",     "powi",   "rint",      "round",
+        "roundeven","sin",          "sqrt",    "smax",   "smin",      "trunc",
+        "umax",     "umin"
+    };
+    if (arithmeticCalls.count(instructionName.str())) {
+        return "arithmetic";
+    }
+
+    return "other";
+}
+
+std::string instructionNameForCount(const llvm::Instruction &I) {
+    if (const auto *call = llvm::dyn_cast<llvm::CallBase>(&I)) {
+        return normalizeCallName(*call);
+    }
+    return I.getOpcodeName();
+}
+
+}  // namespace
+
 void analyzeInstructionCount(llvm::Function &F, const std::string &outputFile) {
     nlohmann::json result;
     std::map<std::string, unsigned> categoryCounts;
@@ -32,15 +130,12 @@ void analyzeInstructionCount(llvm::Function &F, const std::string &outputFile) {
         std::map<std::string, unsigned> blockCategoryCounts;
 
         for (auto &I : BB) {
-            std::string opcodeName = I.getOpcodeName();
-            ++instructionCounts[opcodeName];
+            std::string instructionName = instructionNameForCount(I);
+            ++instructionCounts[instructionName];
 
-            for (const auto &category : LLVM_CATEGORIES) {
-                if (category.second.count(opcodeName)) {
-                    ++categoryCounts[category.first];
-                    ++blockCategoryCounts[category.first];
-                    break;
-                }
+            if (auto category = categoryForInstruction(I, instructionName)) {
+                ++categoryCounts[*category];
+                ++blockCategoryCounts[*category];
             }
         }
 
